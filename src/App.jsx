@@ -7,9 +7,9 @@ const INITIAL_STATE = {
   sender: { name: '', address: '', email: '', phone: '', taxId: '', logo: null },
   client: { name: '', company: '', address: '', email: '', phone: '', taxId: '' },
   meta: { number: 'INV-001', date: new Date().toISOString().split('T')[0], dueDate: '', currency: 'INR' },
-  items: [{ id: 1, description: '', quantity: 1, price: 0, tax: 0 }],
+  items: [{ id: 1, description: '', hsn: '', quantity: 1, price: 0, tax: 0 }],
   payment: { method: 'Bank Transfer', details: '', notes: '' },
-  global: { discount: 0, discountType: 'flat', notes: '', terms: '' }
+  global: { discount: 0, discountType: 'flat', notes: '', terms: '', taxType: 'IGST', roundOff: true }
 };
 
 function App() {
@@ -49,7 +49,7 @@ function App() {
   const addItem = () => {
     setInvoice(prev => ({
       ...prev,
-      items: [...prev.items, { id: Date.now(), description: '', quantity: 1, price: 0, tax: 0 }]
+      items: [...prev.items, { id: Date.now(), description: '', hsn: '', quantity: 1, price: 0, tax: 0 }]
     }));
   };
 
@@ -69,7 +69,10 @@ function App() {
 
   const calculateTotals = () => {
     const subtotal = invoice.items.reduce((acc, item) => acc + (item.quantity * item.price), 0);
-    const taxTotal = invoice.items.reduce((acc, item) => acc + (item.quantity * item.price * (item.tax / 100)), 0);
+
+    // Tax is calculated per item then summed up
+    // Logic: (Price * Qty) * (Tax / 100)
+    const totalTaxAmount = invoice.items.reduce((acc, item) => acc + (item.quantity * item.price * (item.tax / 100)), 0);
 
     let discountAmount = 0;
     if (invoice.global.discountType === 'flat') {
@@ -78,9 +81,27 @@ function App() {
       discountAmount = subtotal * ((parseFloat(invoice.global.discount) || 0) / 100);
     }
 
-    const total = subtotal + taxTotal - discountAmount;
+    let total = subtotal + totalTaxAmount - discountAmount;
+    let roundOffAmount = 0;
 
-    return { subtotal, taxTotal, discountAmount, total };
+    if (invoice.global.roundOff) {
+      const roundedTotal = Math.round(total);
+      roundOffAmount = roundedTotal - total;
+      total = roundedTotal;
+    }
+
+    // Split logic
+    const taxType = invoice.global.taxType; // IGST or CGST_SGST
+    let cgst = 0, sgst = 0, igst = 0;
+
+    if (taxType === 'CGST_SGST') {
+      cgst = totalTaxAmount / 2;
+      sgst = totalTaxAmount / 2;
+    } else {
+      igst = totalTaxAmount;
+    }
+
+    return { subtotal, totalTaxAmount, cgst, sgst, igst, discountAmount, roundOffAmount, total };
   };
 
   const totals = calculateTotals();
@@ -267,6 +288,12 @@ function App() {
                   value={invoice.client.email}
                   onChange={(e) => updateSection('client', 'email', e.target.value)}
                 />
+                <Input
+                  label="Client GSTIN"
+                  placeholder="Optional"
+                  value={invoice.client.taxId}
+                  onChange={(e) => updateSection('client', 'taxId', e.target.value)}
+                />
               </div>
             </Card>
 
@@ -321,7 +348,7 @@ function App() {
               <div className="space-y-4">
                 {invoice.items.map((item) => (
                   <div key={item.id} className="group relative grid grid-cols-12 gap-3 items-start p-4 rounded-lg border bg-muted/10 hover:bg-muted/30 transition-colors">
-                    <div className="col-span-12 md:col-span-5">
+                    <div className="col-span-12 md:col-span-4">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Description</label>
                       <input
                         className="w-full bg-transparent border-0 border-b border-input focus:border-primary focus:ring-0 p-1 text-sm font-medium placeholder:text-muted/50"
@@ -330,7 +357,16 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'description', e.target.value)}
                       />
                     </div>
-                    <div className="col-span-4 md:col-span-2">
+                    <div className="col-span-6 md:col-span-2">
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">HSN/SAC</label>
+                      <input
+                        className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                        placeholder="HSN"
+                        value={item.hsn}
+                        onChange={(e) => updateItem(item.id, 'hsn', e.target.value)}
+                      />
+                    </div>
+                    <div className="col-span-6 md:col-span-1">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Qty</label>
                       <input
                         type="number"
@@ -339,7 +375,7 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                       />
                     </div>
-                    <div className="col-span-4 md:col-span-2">
+                    <div className="col-span-6 md:col-span-2">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Price</label>
                       <input
                         type="number"
@@ -348,18 +384,28 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
                       />
                     </div>
-                    <div className="col-span-3 md:col-span-2 text-right">
+                    <div className="col-span-6 md:col-span-1">
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Tax %</label>
+                      <input
+                        type="number"
+                        className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                        placeholder="%"
+                        value={item.tax}
+                        onChange={(e) => updateItem(item.id, 'tax', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div className="col-span-6 md:col-span-2 text-right">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Total</label>
                       <div className="py-1 text-sm font-bold opacity-80">
-                        {(item.quantity * item.price).toFixed(2)}
+                        {((item.quantity * item.price) * (1 + (item.tax / 100))).toFixed(2)}
                       </div>
                     </div>
-                    <div className="col-span-1 flex justify-end pt-6 md:pt-4">
+                    <div className="col-span-12 md:col-span-12 flex justify-end pt-2">
                       <button
                         onClick={() => removeItem(item.id)}
-                        className="text-muted-foreground hover:text-red-500 transition-colors"
+                        className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3 h-3" /> Remove
                       </button>
                     </div>
                   </div>
@@ -375,6 +421,32 @@ function App() {
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col gap-1 w-1/2">
+                      <label className="text-xs font-bold text-muted-foreground uppercase">Tax Type</label>
+                      <select
+                        className="w-full p-2 border rounded text-sm"
+                        value={invoice.global.taxType}
+                        onChange={(e) => updateSection('global', 'taxType', e.target.value)}
+                      >
+                        <option value="IGST">IGST (Inter-state)</option>
+                        <option value="CGST_SGST">CGST + SGST (Intra-state)</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1 w-1/2">
+                      <label className="text-xs font-bold text-muted-foreground uppercase">Round Off</label>
+                      <div className="flex items-center h-[38px]">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          checked={invoice.global.roundOff}
+                          onChange={(e) => updateSection('global', 'roundOff', e.target.checked)}
+                        />
+                        <span className="ml-2 text-sm">Enable</span>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-semibold text-muted-foreground">Payment Details / Notes</label>
                     <textarea
@@ -417,6 +489,32 @@ function App() {
                     </div>
                   )}
 
+                  {totals.igst > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>IGST</span>
+                      <span>{invoice.meta.currency} {totals.igst.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {totals.cgst > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>CGST</span>
+                      <span>{invoice.meta.currency} {totals.cgst.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {totals.sgst > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>SGST</span>
+                      <span>{invoice.meta.currency} {totals.sgst.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {totals.roundOffAmount !== 0 && (
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Round Off</span>
+                      <span>{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+
                   <div className="border-t border-dashed my-2"></div>
 
                   <div className="flex justify-between items-center text-lg font-bold">
@@ -454,6 +552,7 @@ function App() {
                           <p className="whitespace-pre-wrap">{invoice.sender.address}</p>
                           {invoice.sender.email && <p>{invoice.sender.email}</p>}
                           {invoice.sender.phone && <p>{invoice.sender.phone}</p>}
+                          {invoice.sender.taxId && <p>GSTIN: {invoice.sender.taxId}</p>}
                         </div>
                       </div>
                       <div className="text-right">
@@ -482,6 +581,7 @@ function App() {
                         <h3 className="text-xl font-bold text-gray-900 mb-1">{invoice.client.name || 'Client Name'}</h3>
                         <p className="text-gray-600 text-sm mb-1">{invoice.client.company}</p>
                         <p className="text-gray-500 text-sm whitespace-pre-line">{invoice.client.address}</p>
+                        {invoice.client.taxId && <p className="text-gray-500 text-sm mt-1">GSTIN: {invoice.client.taxId}</p>}
                       </div>
                     </div>
 
@@ -489,9 +589,11 @@ function App() {
                     <table className="w-full mb-8">
                       <thead>
                         <tr className="border-b-2 border-gray-900">
-                          <th className="text-left py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Item Description</th>
+                          <th className="text-left py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Item</th>
+                          <th className="text-center py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">HSN</th>
                           <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Qty</th>
                           <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Price</th>
+                          <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Tax</th>
                           <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Amount</th>
                         </tr>
                       </thead>
@@ -499,8 +601,10 @@ function App() {
                         {invoice.items.map(item => (
                           <tr key={item.id}>
                             <td className="py-4 text-sm text-gray-700 font-medium">{item.description}</td>
+                            <td className="py-4 text-center text-sm text-gray-500">{item.hsn || '-'}</td>
                             <td className="py-4 text-right text-sm text-gray-500">{item.quantity}</td>
                             <td className="py-4 text-right text-sm text-gray-500">{invoice.meta.currency} {item.price.toFixed(2)}</td>
+                            <td className="py-4 text-right text-sm text-gray-500">{item.tax}%</td>
                             <td className="py-4 text-right text-sm text-gray-900 font-bold">{invoice.meta.currency} {(item.quantity * item.price).toFixed(2)}</td>
                           </tr>
                         ))}
@@ -520,9 +624,39 @@ function App() {
                             <span>-{invoice.meta.currency} {totals.discountAmount.toFixed(2)}</span>
                           </div>
                         )}
+
+                        {totals.igst > 0 && (
+                          <div className="flex justify-between text-sm text-gray-600">
+                            <span>IGST</span>
+                            <span className="font-medium">{invoice.meta.currency} {totals.igst.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {totals.cgst > 0 && (
+                          <div className="flex justify-between text-sm text-gray-600">
+                            <span>CGST</span>
+                            <span className="font-medium">{invoice.meta.currency} {totals.cgst.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {totals.sgst > 0 && (
+                          <div className="flex justify-between text-sm text-gray-600">
+                            <span>SGST</span>
+                            <span className="font-medium">{invoice.meta.currency} {totals.sgst.toFixed(2)}</span>
+                          </div>
+                        )}
+
+                        {totals.roundOffAmount !== 0 && (
+                          <div className="flex justify-between text-sm text-gray-500 italic">
+                            <span>Round Off</span>
+                            <span>{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
+                          </div>
+                        )}
+
                         <div className="border-t-2 border-gray-900 pt-3 flex justify-between items-end">
                           <span className="text-sm font-bold uppercase tracking-widest text-gray-900">Total</span>
                           <span className="text-3xl font-bold text-blue-600">{invoice.meta.currency} {totals.total.toFixed(2)}</span>
+                        </div>
+                        <div className="text-right text-xs text-gray-500 mt-1">
+                          (Inclusive of all taxes)
                         </div>
                       </div>
                     </div>

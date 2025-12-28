@@ -7,7 +7,7 @@ const INITIAL_STATE = {
   sender: { name: '', address: '', email: '', phone: '', taxId: '', logo: null },
   client: { name: '', company: '', address: '', email: '', phone: '', taxId: '' },
   meta: { number: 'INV-001', date: new Date().toISOString().split('T')[0], dueDate: '', currency: 'INR' },
-  items: [{ id: 1, description: '', hsn: '', quantity: 1, price: 0, tax: 0 }],
+  items: [{ id: 1, description: '', hsn: '', quantity: 1, price: 0, cgst: 0, sgst: 0, igst: 0 }],
   payment: { method: 'Bank Transfer', details: '', notes: '' },
   global: { discount: 0, discountType: 'flat', notes: '', terms: '', taxType: 'IGST', roundOff: true }
 };
@@ -49,7 +49,7 @@ function App() {
   const addItem = () => {
     setInvoice(prev => ({
       ...prev,
-      items: [...prev.items, { id: Date.now(), description: '', hsn: '', quantity: 1, price: 0, tax: 0 }]
+      items: [...prev.items, { id: Date.now(), description: '', hsn: '', quantity: 1, price: 0, cgst: 0, sgst: 0, igst: 0 }]
     }));
   };
 
@@ -61,6 +61,10 @@ function App() {
   };
 
   const updateItem = (id, field, value) => {
+    if ((field === 'cgst' || field === 'sgst') && value > 2.5) {
+      alert(`${field.toUpperCase()} cannot exceed 2.50%`);
+      return;
+    }
     setInvoice(prev => ({
       ...prev,
       items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
@@ -70,9 +74,24 @@ function App() {
   const calculateTotals = () => {
     const subtotal = invoice.items.reduce((acc, item) => acc + (item.quantity * item.price), 0);
 
-    // Tax is calculated per item then summed up
-    // Logic: (Price * Qty) * (Tax / 100)
-    const totalTaxAmount = invoice.items.reduce((acc, item) => acc + (item.quantity * item.price * (item.tax / 100)), 0);
+    // Tax calculation based on Tax Type
+    let totalTaxAmount = 0;
+    let cgst = 0, sgst = 0, igst = 0;
+
+    invoice.items.forEach(item => {
+      const itemAmount = item.quantity * item.price;
+      if (invoice.global.taxType === 'CGST_SGST') {
+        const itemCgst = itemAmount * ((item.cgst || 0) / 100);
+        const itemSgst = itemAmount * ((item.sgst || 0) / 100);
+        cgst += itemCgst;
+        sgst += itemSgst;
+        totalTaxAmount += (itemCgst + itemSgst);
+      } else {
+        const itemIgst = itemAmount * ((item.igst || 0) / 100);
+        igst += itemIgst;
+        totalTaxAmount += itemIgst;
+      }
+    });
 
     let discountAmount = 0;
     if (invoice.global.discountType === 'flat') {
@@ -85,21 +104,15 @@ function App() {
     let roundOffAmount = 0;
 
     if (invoice.global.roundOff) {
+      // Rounding logic: > 0.50 same as >= 0.50 (Math.round)
+      // 998.60 -> 999
+      // 998.40 -> 998
       const roundedTotal = Math.round(total);
       roundOffAmount = roundedTotal - total;
       total = roundedTotal;
     }
 
-    // Split logic
-    const taxType = invoice.global.taxType; // IGST or CGST_SGST
-    let cgst = 0, sgst = 0, igst = 0;
 
-    if (taxType === 'CGST_SGST') {
-      cgst = totalTaxAmount / 2;
-      sgst = totalTaxAmount / 2;
-    } else {
-      igst = totalTaxAmount;
-    }
 
     return { subtotal, totalTaxAmount, cgst, sgst, igst, discountAmount, roundOffAmount, total };
   };
@@ -384,20 +397,55 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
                       />
                     </div>
-                    <div className="col-span-6 md:col-span-1">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Tax %</label>
-                      <input
-                        type="number"
-                        className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                        placeholder="%"
-                        value={item.tax}
-                        onChange={(e) => updateItem(item.id, 'tax', parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
+                    {invoice.global.taxType === 'IGST' && (
+                      <div className="col-span-6 md:col-span-1">
+                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">IGST %</label>
+                        <input
+                          type="number"
+                          className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                          placeholder="%"
+                          value={item.igst}
+                          onChange={(e) => updateItem(item.id, 'igst', parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
+                    )}
+                    {invoice.global.taxType === 'CGST_SGST' && (
+                      <>
+                        <br></br>
+                        <div className="col-span-3 md:col-span-1">
+
+                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">CGST %</label>
+
+                          <input
+                            type="number"
+                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                            placeholder="%"
+                            value={item.cgst}
+                            onChange={(e) => updateItem(item.id, 'cgst', parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="col-span-3 md:col-span-1">
+                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">SGST %</label>
+                          <input
+                            type="number"
+                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                            placeholder="%"
+                            value={item.sgst}
+                            onChange={(e) => updateItem(item.id, 'sgst', parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="col-span-6 md:col-span-2 text-right">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Total</label>
                       <div className="py-1 text-sm font-bold opacity-80">
-                        {((item.quantity * item.price) * (1 + (item.tax / 100))).toFixed(2)}
+                        {(
+                          (item.quantity * item.price) * (1 + (
+                            invoice.global.taxType === 'IGST'
+                              ? (item.igst || 0) / 100
+                              : ((item.cgst || 0) + (item.sgst || 0)) / 100
+                          ))
+                        ).toFixed(2)}
                       </div>
                     </div>
                     <div className="col-span-12 md:col-span-12 flex justify-end pt-2">
@@ -508,10 +556,10 @@ function App() {
                     </div>
                   )}
 
-                  {totals.roundOffAmount !== 0 && (
+                  {invoice.global.roundOff && totals.roundOffAmount !== 0 && (
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <span>Round Off</span>
-                      <span>{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
+                      <span>{totals.roundOffAmount > 0 ? '+' : ''}{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
                     </div>
                   )}
 
@@ -593,7 +641,13 @@ function App() {
                           <th className="text-center py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">HSN</th>
                           <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Qty</th>
                           <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Price</th>
-                          <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Tax</th>
+                          {invoice.global.taxType === 'IGST' && <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">IGST</th>}
+                          {invoice.global.taxType === 'CGST_SGST' && (
+                            <>
+                              <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">CGST</th>
+                              <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">SGST</th>
+                            </>
+                          )}
                           <th className="text-right py-4 text-xs font-bold text-gray-900 uppercase tracking-wider">Amount</th>
                         </tr>
                       </thead>
@@ -604,8 +658,24 @@ function App() {
                             <td className="py-4 text-center text-sm text-gray-500">{item.hsn || '-'}</td>
                             <td className="py-4 text-right text-sm text-gray-500">{item.quantity}</td>
                             <td className="py-4 text-right text-sm text-gray-500">{invoice.meta.currency} {item.price.toFixed(2)}</td>
-                            <td className="py-4 text-right text-sm text-gray-500">{item.tax}%</td>
-                            <td className="py-4 text-right text-sm text-gray-900 font-bold">{invoice.meta.currency} {(item.quantity * item.price).toFixed(2)}</td>
+                            {invoice.global.taxType === 'IGST' && (
+                              <td className="py-4 text-right text-sm text-gray-500">{item.igst || 0}%</td>
+                            )}
+                            {invoice.global.taxType === 'CGST_SGST' && (
+                              <>
+                                <td className="py-4 text-right text-sm text-gray-500">{item.cgst || 0}%</td>
+                                <td className="py-4 text-right text-sm text-gray-500">{item.sgst || 0}%</td>
+                              </>
+                            )}
+                            <td className="py-4 text-right text-sm text-gray-900 font-bold">{invoice.meta.currency} {
+                              (
+                                (item.quantity * item.price) * (1 + (
+                                  invoice.global.taxType === 'IGST'
+                                    ? (item.igst || 0) / 100
+                                    : ((item.cgst || 0) + (item.sgst || 0)) / 100
+                                ))
+                              ).toFixed(2)
+                            }</td>
                           </tr>
                         ))}
                       </tbody>
@@ -644,10 +714,10 @@ function App() {
                           </div>
                         )}
 
-                        {totals.roundOffAmount !== 0 && (
+                        {invoice.global.roundOff && totals.roundOffAmount !== 0 && (
                           <div className="flex justify-between text-sm text-gray-500 italic">
                             <span>Round Off</span>
-                            <span>{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
+                            <span>{totals.roundOffAmount > 0 ? '+' : ''}{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
                           </div>
                         )}
 

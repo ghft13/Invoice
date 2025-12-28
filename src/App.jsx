@@ -61,10 +61,6 @@ function App() {
   };
 
   const updateItem = (id, field, value) => {
-    if ((field === 'cgst' || field === 'sgst') && value > 2.5) {
-      alert(`${field.toUpperCase()} cannot exceed 2.50%`);
-      return;
-    }
     setInvoice(prev => ({
       ...prev,
       items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
@@ -400,39 +396,42 @@ function App() {
                     {invoice.global.taxType === 'IGST' && (
                       <div className="col-span-6 md:col-span-1">
                         <label className="text-xs font-semibold text-muted-foreground mb-1 block">IGST %</label>
-                        <input
-                          type="number"
-                          className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                          placeholder="%"
-                          value={item.igst}
+                        <select
+                          className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
+                          value={item.igst || 0}
                           onChange={(e) => updateItem(item.id, 'igst', parseFloat(e.target.value) || 0)}
-                        />
+                        >
+                          <option value="0">0%</option>
+                          <option value="5">5%</option>
+                          <option value="18">18%</option>
+                        </select>
                       </div>
                     )}
                     {invoice.global.taxType === 'CGST_SGST' && (
                       <>
-                        <br></br>
                         <div className="col-span-3 md:col-span-1">
-
                           <label className="text-xs font-semibold text-muted-foreground mb-1 block">CGST %</label>
-
-                          <input
-                            type="number"
-                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                            placeholder="%"
-                            value={item.cgst}
+                          <select
+                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
+                            value={item.cgst || 0}
                             onChange={(e) => updateItem(item.id, 'cgst', parseFloat(e.target.value) || 0)}
-                          />
+                          >
+                            <option value="0">0%</option>
+                            <option value="2.5">2.5%</option>
+                            <option value="9">9%</option>
+                          </select>
                         </div>
                         <div className="col-span-3 md:col-span-1">
                           <label className="text-xs font-semibold text-muted-foreground mb-1 block">SGST %</label>
-                          <input
-                            type="number"
-                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                            placeholder="%"
-                            value={item.sgst}
+                          <select
+                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
+                            value={item.sgst || 0}
                             onChange={(e) => updateItem(item.id, 'sgst', parseFloat(e.target.value) || 0)}
-                          />
+                          >
+                            <option value="0">0%</option>
+                            <option value="2.5">2.5%</option>
+                            <option value="9">9%</option>
+                          </select>
                         </div>
                       </>
                     )}

@@ -170,7 +170,7 @@ function App() {
         </div>
       </nav>
 
-      <div className="container py-8">
+      <div className="container py-8 ml-20">
         {/* Mobile Tabs */}
         <div className="lg:hidden flex items-center p-1 mb-6 bg-muted rounded-lg w-full max-w-sm mx-auto">
           <button
@@ -190,7 +190,7 @@ function App() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
 
           {/* Editor Column */}
-          <div className={`lg:col-span-7 space-y-6 ${activeTab === 'edit' ? 'block' : 'hidden lg:block'}`}>
+          <div className={`lg:col-span-7 space-y-6 ${activeTab === 'edit' ? 'block' : 'hidden lg:block'} `}>
 
             {/* Business Info */}
             <Card className="border-l-4 border-l-blue-500">

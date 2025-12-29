@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Card, Button, Input } from './components/ui/Components';
-import { Plus, Trash2, Download, RefreshCw, FileText, Layout, ChevronRight, Upload, Printer } from 'lucide-react';
+import { Plus, Trash2, Download, RefreshCw, FileText, Layout, ChevronRight, Upload, Printer, Mic } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import { amountToWords } from './utils/numberToWords';
+
+import { useVoiceInput } from './hooks/useVoiceInput';
+import { parseVoiceCommand } from './utils/voiceParser';
 
 const INITIAL_STATE = {
   sender: { name: '', address: '', email: '', phone: '', taxId: '', logo: null },
@@ -24,6 +27,79 @@ function App() {
   });
 
   const [activeTab, setActiveTab] = useState('edit'); // 'edit' or 'preview' mobile toggle
+
+  const { isListening, startListening } = useVoiceInput();
+  const [activeVoiceId, setActiveVoiceId] = useState(null);
+
+  useEffect(() => {
+    if (!isListening) {
+      setActiveVoiceId(null);
+    }
+  }, [isListening]);
+
+  const handleGlobalVoiceInput = () => {
+    setActiveVoiceId('global');
+    startListening((text) => {
+      const { updates, newItems } = parseVoiceCommand(text);
+
+      let updatedFields = [];
+      let addedItemsCount = 0;
+
+      if (Object.keys(updates).length > 0 || (newItems && newItems.length > 0)) {
+        setInvoice(prev => {
+          const nextInvoice = { ...prev };
+
+          // Apply Field Updates
+          Object.entries(updates).forEach(([path, value]) => {
+            const parts = path.split('.');
+            if (parts.length === 2) {
+              const [section, field] = parts;
+              if (nextInvoice[section]) {
+                nextInvoice[section] = {
+                  ...nextInvoice[section],
+                  [field]: value
+                };
+                updatedFields.push(path);
+              }
+            }
+          });
+
+          // Apply New Items
+          if (newItems && newItems.length > 0) {
+            const itemsToAdd = newItems.map((item, idx) => ({
+              id: Date.now() + idx, // Ensure unique ID
+              description: '', hsn: '', quantity: 1, price: 0, // Safe defaults for common fields
+              cgst: 0, sgst: 0, igst: 0, // Defaults for taxes
+              ...item // Override with parsed values
+            }));
+            nextInvoice.items = [...nextInvoice.items, ...itemsToAdd];
+            addedItemsCount = itemsToAdd.length;
+          }
+
+          return nextInvoice;
+        });
+
+        const feedback = [];
+        if (updatedFields.length > 0) feedback.push(`Updated: ${updatedFields.map(f => f.split('.')[1]).join(', ')}`);
+        if (addedItemsCount > 0) feedback.push(`Added ${addedItemsCount} new item(s)`);
+
+        alert(feedback.join('\n'));
+      } else {
+        alert("No recognizable commands found. Try 'Business Name ABC' or 'Item Laptop Price 500'");
+      }
+    });
+  };
+
+  const handleVoiceInput = (itemId) => {
+    setActiveVoiceId(itemId);
+    startListening((text) => {
+      const numericString = text.replace(/[^0-9.]/g, '');
+      const value = parseFloat(numericString);
+      if (!isNaN(value)) {
+        updateItem(itemId, 'price', value);
+      }
+    });
+  };
 
   useEffect(() => {
     localStorage.setItem('invoice_draft', JSON.stringify(invoice));
@@ -151,36 +227,47 @@ function App() {
     <div className="min-h-screen bg-muted/40 font-sans text-foreground">
       {/* Navbar */}
       <nav className="sticky top-0 z-30 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
+        <div className="container flex flex-wrap md:flex-nowrap h-auto min-h-[64px] items-center justify-between py-2 gap-2">
           <div className="flex items-center gap-2 font-bold text-xl text-primary">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <FileText className="h-5 w-5" />
             </div>
-            <span>Invoicer.</span>
+            <span>JAYRAJ.</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="hidden md:flex flex-col items-end text-sm">
+          <div className="flex items-center gap-2 md:gap-4 ml-auto">
+            <div className="hidden lg:flex flex-col items-end text-sm">
               <span className="text-muted-foreground">Free Plan</span>
               <span className="font-medium text-foreground">{invoiceCount} / 5 Invoices</span>
             </div>
-            <Button variant="outline" size="sm" onClick={handleReset}>
-              <RefreshCw className="mr-2 h-4 w-4" /> New
+            <button
+              onClick={handleGlobalVoiceInput}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs md:text-sm font-medium transition-all border ${activeVoiceId === 'global' && isListening
+                ? 'bg-red-100 text-red-600 border-red-200 animate-pulse'
+                : 'bg-background hover:bg-accent text-foreground border-input'
+                }`}
+            >
+              <Mic className={`h-3 w-3 md:h-4 md:w-4 ${activeVoiceId === 'global' && isListening ? 'animate-bounce' : ''}`} />
+              <span className="hidden sm:inline">{activeVoiceId === 'global' && isListening ? 'Listening...' : 'Voice Command'}</span>
+              <span className="sm:hidden">{activeVoiceId === 'global' && isListening ? '...' : 'Voice'}</span>
+            </button>
+            <Button variant="outline" size="sm" onClick={handleReset} className="px-2 md:px-4">
+              <RefreshCw className="md:mr-2 h-4 w-4" /> <span className="hidden md:inline">New</span>
             </Button>
             <Button
               variant="primary"
               size="sm"
               disabled={invoiceCount >= 5}
               onClick={handleDownloadPDF}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 px-2 md:px-4"
             >
-              <Download className="mr-2 h-4 w-4" /> Download
+              <Download className="md:mr-2 h-4 w-4" /> <span className="hidden md:inline">Download</span>
             </Button>
           </div>
         </div>
       </nav>
 
-      <div className="container py-8 ml-20">
+      <div className="container py-8 mx-auto">
         {/* Mobile Tabs */}
         <div className="lg:hidden flex items-center p-1 mb-6 bg-muted rounded-lg w-full max-w-sm mx-auto">
           <button
@@ -370,8 +457,8 @@ function App() {
 
               <div className="space-y-4">
                 {invoice.items.map((item) => (
-                  <div key={item.id} className="group relative grid grid-cols-12 gap-3 items-start p-4 rounded-lg border bg-muted/10 hover:bg-muted/30 transition-colors">
-                    <div className="col-span-12 md:col-span-4">
+                  <div key={item.id} className="group relative grid grid-cols-2 md:grid-cols-12 gap-3 items-start p-4 rounded-lg border bg-muted/10 hover:bg-muted/30 transition-colors">
+                    <div className="col-span-2 md:col-span-4">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Description</label>
                       <input
                         className="w-full bg-transparent border-0 border-b border-input focus:border-primary focus:ring-0 p-1 text-sm font-medium placeholder:text-muted/50"
@@ -380,7 +467,7 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'description', e.target.value)}
                       />
                     </div>
-                    <div className="col-span-6 md:col-span-2">
+                    <div className="col-span-1 md:col-span-2">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">HSN/SAC</label>
                       <input
                         className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
@@ -389,7 +476,7 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'hsn', e.target.value)}
                       />
                     </div>
-                    <div className="col-span-6 md:col-span-1">
+                    <div className="col-span-1 md:col-span-1">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Qty</label>
                       <input
                         type="number"
@@ -398,17 +485,30 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                       />
                     </div>
-                    <div className="col-span-6 md:col-span-2">
+                    <div className="col-span-2 md:col-span-2">
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">Price</label>
-                      <input
-                        type="number"
-                        className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                        value={item.price}
-                        onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
-                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                          value={item.price}
+                          onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
+                        />
+                        <button
+                          onClick={() => handleVoiceInput(item.id)}
+                          className={`p-1.5 rounded-md transition-all ${activeVoiceId === item.id && isListening
+                            ? 'bg-red-100 text-red-600 animate-pulse ring-1 ring-red-400'
+                            : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                          title="Voice Input"
+                          type="button"
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                     {invoice.global.taxType === 'IGST' && (
-                      <div className="col-span-6 md:col-span-1">
+                      <div className="col-span-1 md:col-span-1">
                         <label className="text-xs font-semibold text-muted-foreground mb-1 block">IGST %</label>
                         <select
                           className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
@@ -418,13 +518,14 @@ function App() {
                           <option value="0">0%</option>
                           <option value="5">5%</option>
                           <option value="18">18%</option>
+                          <option value="28">28%</option>
                         </select>
                       </div>
                     )}
                     {invoice.global.taxType === 'CGST_SGST' && (
                       <>
-                        <div className="col-span-3 md:col-span-1">
-                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">CGST %</label>
+                        <div className="col-span-1 md:col-span-1">
+                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">CGST</label>
                           <select
                             className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
                             value={item.cgst || 0}
@@ -433,10 +534,11 @@ function App() {
                             <option value="0">0%</option>
                             <option value="2.5">2.5%</option>
                             <option value="9">9%</option>
+                            <option value="14">14%</option>
                           </select>
                         </div>
-                        <div className="col-span-3 md:col-span-1">
-                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">SGST %</label>
+                        <div className="col-span-1 md:col-span-1">
+                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">SGST</label>
                           <select
                             className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
                             value={item.sgst || 0}
@@ -445,12 +547,13 @@ function App() {
                             <option value="0">0%</option>
                             <option value="2.5">2.5%</option>
                             <option value="9">9%</option>
+                            <option value="14">14%</option>
                           </select>
                         </div>
                       </>
                     )}
-                    <div className="col-span-6 md:col-span-2 text-right">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Total</label>
+                    <div className="col-span-2 md:col-span-2 text-right md:text-right flex justify-between md:block items-center">
+                      <label className="text-xs font-semibold text-muted-foreground mb-0 md:mb-1 block">Total</label>
                       <div className="py-1 text-sm font-bold opacity-80">
                         {(
                           (item.quantity * item.price) * (1 + (
@@ -461,12 +564,12 @@ function App() {
                         ).toFixed(2)}
                       </div>
                     </div>
-                    <div className="col-span-12 md:col-span-12 flex justify-end pt-2">
+                    <div className="col-span-2 md:col-span-12 flex justify-end pt-2">
                       <button
                         onClick={() => removeItem(item.id)}
                         className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
                       >
-                        <Trash2 className="w-3 h-3" /> Remove
+                        <Trash2 className="w-3 h-3" /> Remove Item
                       </button>
                     </div>
                   </div>
@@ -590,8 +693,8 @@ function App() {
           {/* Preview Column */}
           <div className={`lg:col-span-5 ${activeTab === 'preview' ? 'block' : 'hidden lg:block'}`}>
             <div className="sticky top-24">
-              <div className="relative group">
-                <div id="invoice-preview" className="bg-white text-black shadow-2xl rounded-none md:rounded-lg overflow-hidden min-h-[800px] print:shadow-none print:rounded-none">
+              <div className="relative group overflow-x-auto pb-4 w-full max-w-[90vw] mx-auto md:max-w-full">
+                <div id="invoice-preview" className="bg-white text-black shadow-2xl rounded-none md:rounded-lg overflow-hidden min-h-[800px] min-w-[700px] print:shadow-none print:rounded-none">
 
                   {/* Modern Template */}
                   {invoice.global.template === 'modern' && (

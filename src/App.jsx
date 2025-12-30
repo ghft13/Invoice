@@ -5,7 +5,7 @@ import html2pdf from 'html2pdf.js';
 import { amountToWords } from './utils/numberToWords';
 
 import { useVoiceInput } from './hooks/useVoiceInput';
-import { parseVoiceCommand } from './utils/voiceParser';
+import { parseVoiceCommand, parseItemDetails } from './utils/voiceParser';
 
 const INITIAL_STATE = {
   sender: { name: '', address: '', email: '', phone: '', taxId: '', logo: null },
@@ -93,10 +93,20 @@ function App() {
   const handleVoiceInput = (itemId) => {
     setActiveVoiceId(itemId);
     startListening((text) => {
-      const numericString = text.replace(/[^0-9.]/g, '');
-      const value = parseFloat(numericString);
-      if (!isNaN(value)) {
-        updateItem(itemId, 'price', value);
+      // 1. Try parsing structured command (e.g. "Qty 5 Description Soap")
+      const itemData = parseItemDetails(text);
+
+      if (Object.keys(itemData).length > 0) {
+        Object.entries(itemData).forEach(([field, value]) => {
+          updateItem(itemId, field, value);
+        });
+      } else {
+        // 2. Fallback: Just a number? Treat as Price (Legacy behavior)
+        const numericString = text.replace(/[^0-9.]/g, '');
+        const value = parseFloat(numericString);
+        if (!isNaN(value)) {
+          updateItem(itemId, 'price', value);
+        }
       }
     });
   };

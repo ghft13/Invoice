@@ -1,4 +1,5 @@
-export const parseVoiceCommand = (transcript) => {
+
+const parseVoiceCommand = (transcript) => {
     const normalize = (str) => str.toLowerCase().trim();
     const lowerTranscript = normalize(transcript);
 
@@ -39,7 +40,7 @@ export const parseVoiceCommand = (transcript) => {
         { triggers: ['company name', 'client company'], path: 'client.company' }, // Label: "Company Name"
         { triggers: ['client address', 'billing address'], path: 'client.address' }, // Label: "Client Address"
         { triggers: ['client email', 'customer email', 'client email address', 'customer email address', "client's email", "clients email", "billing email", "client mail", "customer mail"], path: 'client.email' }, // Label: "Client Email"
-        { triggers: ['client gstin', 'client tax', 'customer gst', 'client gst'], path: 'client.taxId' }, // Label: "Client GSTIN"
+        { triggers: ['client gstin', 'client tax', 'customer gst'], path: 'client.taxId' }, // Label: "Client GSTIN"
 
         // --- Invoice Meta ---
         { triggers: ['number', 'invoice number', 'invoice no'], path: 'meta.number' }, // Label: "Number"
@@ -56,67 +57,7 @@ export const parseVoiceCommand = (transcript) => {
     ];
 
     const updates = extractFields(globalTranscript, globalMappings);
-
-    // --- PART 2: PARSE ITEMS ---
-
-    const newItems = [];
-    if (itemsTranscript) {
-        let standardizedItems = itemsTranscript;
-        itemSplitters.forEach(s => {
-            standardizedItems = standardizedItems.replaceAll(s, '||ITEM||');
-        });
-
-        const itemBlocks = standardizedItems.split('||ITEM||').map(s => s.trim()).filter(Boolean);
-
-        itemBlocks.forEach(block => {
-            const itemData = parseItemDetails(block);
-
-            // Defaulting Logic for new items
-            if (!itemData.description) {
-                itemData.description = "New Item";
-            }
-
-            newItems.push({
-                id: Date.now() + Math.random(),
-                description: itemData.description,
-                hsn: itemData.hsn || '',
-                quantity: itemData.quantity || 1,
-                price: itemData.price || 0,
-                igst: itemData.igst || 0,
-                cgst: itemData.cgst || 0,
-                sgst: itemData.sgst || 0
-            });
-        });
-    }
-
-    return { updates, newItems };
-};
-
-export const parseItemDetails = (text) => {
-    const normalize = (str) => str.toLowerCase().trim();
-    const lowerText = normalize(text);
-
-    const itemMappings = [
-        { triggers: ['description', 'item description'], path: 'description' }, // Label: "Description"
-        { triggers: ['hsn', 'sac', 'hsn/sac'], path: 'hsn' }, // Label: "HSN/SAC"
-        { triggers: ['quantity', 'qty'], path: 'quantity' }, // Label: "Qty"
-        { triggers: ['price', 'rate'], path: 'price' }, // Label: "Price"
-        { triggers: ['igst %', 'igst'], path: 'igst' }, // Label: "IGST %"
-        { triggers: ['cgst %', 'cgst'], path: 'cgst' }, // Label: "CGST %"
-        { triggers: ['sgst %', 'sgst'], path: 'sgst' }, // Label: "SGST %"
-        { triggers: ['total'], path: 'total' } // Label: "Total"
-    ];
-
-    const itemData = extractFields(lowerText, itemMappings);
-
-    // Clean/Transform Data
-    if (itemData.price) itemData.price = parseNumber(itemData.price);
-    if (itemData.quantity) itemData.quantity = parseNumber(itemData.quantity);
-    if (itemData.igst) itemData.igst = parseNumber(itemData.igst);
-    if (itemData.cgst) itemData.cgst = parseNumber(itemData.cgst);
-    if (itemData.sgst) itemData.sgst = parseNumber(itemData.sgst);
-
-    return itemData;
+    return { updates };
 };
 
 // --- HELPER FUNCTIONS ---
@@ -125,45 +66,26 @@ function extractFields(text, mappings) {
     const foundTriggers = [];
 
     mappings.forEach(mapping => {
-        mapping.triggers.forEach(triggerStr => {
-            // Convert string trigger to Regex for flexible matching
-            // Escapes special regex chars, then replaces spaces with pattern matching spaces/punctuation
-            const escaped = triggerStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const pattern = escaped.replace(/\s+/g, '[\\s\\W]+');
-            const regex = new RegExp(pattern, 'g');
-
-            let match;
-            while ((match = regex.exec(text)) !== null) {
-                const index = match.index;
-                const matchLength = match[0].length;
-
+        mapping.triggers.forEach(trigger => {
+            let index = text.indexOf(trigger);
+            while (index !== -1) {
                 // Check word boundaries
-                // 1. Prev Char: Always enforce (avoid "syntax" matching "tax")
                 const prevChar = index > 0 ? text[index - 1] : ' ';
+                const nextChar = index + trigger.length < text.length ? text[index + trigger.length] : ' ';
                 const isWordChar = (c) => /[a-z0-9]/i.test(c);
-                const prevOk = !isWordChar(prevChar);
 
-                // 2. Next Char: Enforce for single-word triggers to avoid "prices" matching "price"
-                //    But relax for multi-word triggers (e.g. "Client Email") to allow "Client EmailJay" (squashed)
-                const nextChar = index + matchLength < text.length ? text[index + matchLength] : ' ';
-                let nextOk = !isWordChar(nextChar);
-
-                if (triggerStr.includes(' ')) {
-                    nextOk = true; // Relax for multi-word
-                }
-
-                if (prevOk && nextOk) {
+                if (!isWordChar(prevChar) && !isWordChar(nextChar)) {
                     foundTriggers.push({
-                        trigger: triggerStr, // Keep original trigger name for sorting/logic
+                        trigger,
                         index,
                         path: mapping.path,
-                        length: matchLength // Use actual matched length
+                        length: trigger.length
                     });
                 }
+                index = text.indexOf(trigger, index + 1);
             }
         });
     });
-
 
     // Sort by Length Descending (Longest Match First)
     foundTriggers.sort((a, b) => b.length - a.length);
@@ -206,16 +128,8 @@ function extractFields(text, mappings) {
 
         // Special handling for Email fields
         if (t.path.toLowerCase().includes('email')) {
-            // Fix " at " and " dot " first, ensuring they are distinct words
-            // We use a regex with boundary-like checks or just surrounding spaces
-            // " at " -> "@", " dot " -> "."
             value = value.replace(/\s+at\s+/g, '@').replace(/\s+dot\s+/g, '.');
-
-            // Also handle case where it might be at start/end or just "at" if strictly space separated
-            // But simpler: just strip spaces AFTER replacing the semantic words
             value = value.replace(/\s+/g, '').toLowerCase();
-
-            // Fix double @@ or .. if happened (in case browser also did it)
             value = value.replace(/@+/g, '@').replace(/\.\.+/g, '.');
         }
 
@@ -228,12 +142,6 @@ function extractFields(text, mappings) {
         }
     }
     return result;
-}
-
-function parseNumber(str) {
-    if (!str) return 0;
-    const match = str.match(/(\d+(\.\d+)?)/);
-    return match ? parseFloat(match[0]) : 0;
 }
 
 function parseDate(str) {
@@ -253,3 +161,29 @@ function parseDate(str) {
         return str;
     }
 }
+
+// TEST CASES
+const inputs = [
+    "client email jay12@gmail.com",
+    "client email address jay12@gmail.com",
+    "email address jay12@gmail.com", // should trigger sender.email
+    "clients email jay12@gmail.com",
+    "Client Email jay12@gmail.com",
+    "client email: jay12@gmail.com",
+    "client email",
+    "client emailjay12@gmail.com",
+    "client, email jay12@gmail.com",
+    "client-email jay12@gmail.com",
+    "client-email jay12@gmail.com",
+    "client. email jay12@gmail.com",
+    "client gst 123ABC",
+    "date january 1 2024",
+    "invoice date 10th october 2024",
+    "issue date 2024-12-25"
+];
+
+inputs.forEach(input => {
+    console.log(`Input: "${input}"`);
+    console.log(JSON.stringify(parseVoiceCommand(input), null, 2));
+    console.log('---');
+});

@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Card, Button, Input } from './components/ui/Components';
-import { Plus, Trash2, Download, RefreshCw, FileText, Layout, ChevronRight, Upload, Printer, Mic } from 'lucide-react';
+import { Plus, Trash2, Download, RefreshCw, FileText, Upload, Mic } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import { amountToWords } from './utils/numberToWords';
+import { db } from './firebase';
+import { collection, addDoc, updateDoc, doc, onSnapshot, increment } from 'firebase/firestore';
 
 import { useVoiceInput } from './hooks/useVoiceInput';
 import { parseVoiceCommand, parseItemDetails } from './utils/voiceParser';
+
+import Subscription from './components/Subscription';
 
 const INITIAL_STATE = {
   sender: { name: '', address: '', email: '', phone: '', taxId: '', logo: null },
@@ -16,20 +20,74 @@ const INITIAL_STATE = {
   global: { discount: 0, discountType: 'flat', notes: '', terms: '', taxType: 'IGST', roundOff: true, template: 'modern' }
 };
 
+import Signup from './components/Signup';
+import AdminPanel from './components/AdminPanel';
+
+const incrementInvoiceNumber = (currentNumber) => {
+  if (!currentNumber) return 'INV-001';
+
+  // Extract trailing number
+  const match = currentNumber.match(/(\d+)$/);
+  if (match) {
+    const numberStr = match[1];
+    const number = parseInt(numberStr, 10);
+    const newNumber = number + 1;
+    // Pad with zeros to match original length
+    const paddedNewNumber = newNumber.toString().padStart(numberStr.length, '0');
+    return currentNumber.slice(0, -numberStr.length) + paddedNewNumber;
+  }
+
+  // Fallback if no trailing number
+  return currentNumber + '-001';
+};
+
 function App() {
-  const [invoice, setInvoice] = useState(() => {
-    const saved = localStorage.getItem('invoice_draft');
-    return saved ? JSON.parse(saved) : INITIAL_STATE;
+  const [user, setUser] = useState(() => {
+    const savedForUser = localStorage.getItem('user_profile');
+    return savedForUser ? JSON.parse(savedForUser) : null;
   });
 
-  const [invoiceCount, setInvoiceCount] = useState(() => {
-    return parseInt(localStorage.getItem('invoice_count') || '0');
+  // Listen for real-time user updates (e.g. Admin Approval)
+  useEffect(() => {
+    if (user?.id) {
+      const unsub = onSnapshot(doc(db, "users", user.id), (doc) => {
+        if (doc.exists()) {
+          const newData = { ...doc.data(), id: doc.id };
+          // Only update if there are changes to avoid loop/re-renders
+          if (JSON.stringify(newData) !== JSON.stringify(user)) {
+            setUser(newData);
+            localStorage.setItem('user_profile', JSON.stringify(newData));
+          }
+        }
+      });
+      return () => unsub();
+    }
+  }, [user?.id]);
+
+  const [invoice, setInvoice] = useState(() => {
+    const saved = localStorage.getItem('invoice_draft');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    // If no draft but we have a user, pre-fill some info
+    if (user) {
+      return {
+        ...INITIAL_STATE,
+        sender: { ...INITIAL_STATE.sender, name: user.name, phone: user.phone }
+      };
+    }
+    return INITIAL_STATE;
   });
+
+  // Derived state from user object, default to 0
+  const invoiceCount = user?.invoiceCount || 0;
 
   const [activeTab, setActiveTab] = useState('edit'); // 'edit' or 'preview' mobile toggle
 
   const { isListening, startListening } = useVoiceInput();
   const [activeVoiceId, setActiveVoiceId] = useState(null);
+  const [showSubscription, setShowSubscription] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   useEffect(() => {
     if (!isListening) {
@@ -203,6 +261,16 @@ function App() {
   const totals = calculateTotals();
 
   const handleDownloadPDF = () => {
+    // Check Subscription Limit
+    if (invoiceCount >= 5 && !user?.isPremium) {
+      if (user?.status === 'pending_approval') {
+        alert("Your subscription is waiting for Admin Approval. Please check back later.");
+        return;
+      }
+      setShowSubscription(true);
+      return;
+    }
+
     const element = document.getElementById('invoice-preview');
     // Temporarily remove shadow and border for clean print
     const originalClass = element.className;
@@ -216,22 +284,116 @@ function App() {
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
+
+
     html2pdf().set(opts).from(element).save().then(() => {
       element.className = originalClass; // Restore styles
+
+      // Auto-increment Invoice Number
+      setInvoice(prev => ({
+        ...prev,
+        meta: {
+          ...prev.meta,
+          number: incrementInvoiceNumber(prev.meta.number)
+        }
+      }));
     });
 
-    if (invoiceCount < 5) {
-      const newCount = invoiceCount + 1;
-      setInvoiceCount(newCount);
-      localStorage.setItem('invoice_count', newCount.toString());
+    // Increment count in Firestore (for both free and premium users)
+    if (user?.id) {
+      const userRef = doc(db, "users", user.id);
+      // Fire and forget update
+      updateDoc(userRef, {
+        invoiceCount: increment(1)
+      }).catch(err => console.error("Error updating invoice count:", err));
     }
   };
 
   const handleReset = () => {
     if (confirm('Are you sure you want to clear this invoice?')) {
-      setInvoice(INITIAL_STATE);
+      setInvoice({
+        ...INITIAL_STATE,
+        // Preserve key business/user details
+        sender: user ? {
+          ...INITIAL_STATE.sender,
+          name: user.name,
+          phone: user.phone,
+          // Could also preserve logo etc if desired, but sticking to basics as per plan
+        } : INITIAL_STATE.sender,
+        // Preserve current (or incremented) invoice number
+        meta: {
+          ...INITIAL_STATE.meta,
+          number: invoice.meta.number
+        }
+      });
     }
   };
+
+  const handleSignup = async (userData) => {
+    localStorage.setItem('user_profile', JSON.stringify(userData));
+    setUser(userData);
+
+    try {
+      const docRef = await addDoc(collection(db, "users"), {
+        ...userData,
+        isPremium: false,
+        invoiceCount: 0,
+        createdAt: new Date()
+      });
+      // Save ID to local storage for future updates (e.g. upgrading)
+      const userWithId = { ...userData, id: docRef.id, isPremium: false, invoiceCount: 0 };
+      setUser(userWithId);
+      localStorage.setItem('user_profile', JSON.stringify(userWithId));
+      console.log("User added to Firestore");
+    } catch (e) {
+      console.error("Error adding document: ", e);
+      alert(`Firebase Error: ${e.message}`);
+    }
+
+    setInvoice(prev => ({
+      ...prev,
+      sender: { ...prev.sender, name: userData.name, phone: userData.phone }
+    }));
+  };
+
+  const handleUpgrade = async (plan, transactionId) => {
+    // 1. Update Local State
+    const updatedUser = { ...user, isPremium: false, status: 'pending_approval', plan, transactionId };
+    setUser(updatedUser);
+    localStorage.setItem('user_profile', JSON.stringify(updatedUser));
+    setShowSubscription(false);
+
+    // 2. Update Firestore
+    if (user?.id) {
+      try {
+        const userRef = doc(db, "users", user.id);
+        await updateDoc(userRef, {
+          status: 'pending_approval',
+          plan: plan,
+          transactionId: transactionId,
+          submittedAt: new Date()
+        });
+        alert("Upgrade Request Submitted! Please wait for Admin Approval.");
+      } catch (error) {
+        console.error("Error updating premium status:", error);
+        // Even if firestore fails, we let them proceed locally for now
+      }
+    } else {
+      alert("Upgrade Request Submitted! (Local only - User ID not found)");
+    }
+  };
+
+  if (!user) {
+    return <Signup onSignup={handleSignup} />;
+  }
+
+  if (showSubscription) {
+    return <Subscription onSubscribe={handleUpgrade} onClose={() => setShowSubscription(false)} />;
+  }
+
+  if (showAdmin) {
+    return <AdminPanel onClose={() => setShowAdmin(false)} />;
+  }
 
   return (
     <div className="min-h-screen bg-muted/40 font-sans text-foreground">
@@ -247,8 +409,10 @@ function App() {
 
           <div className="flex items-center gap-2 md:gap-4 ml-auto">
             <div className="hidden lg:flex flex-col items-end text-sm">
-              <span className="text-muted-foreground">Free Plan</span>
-              <span className="font-medium text-foreground">{invoiceCount} / 5 Invoices</span>
+              <span className="text-muted-foreground cursor-pointer" onClick={() => setShowAdmin(true)}>
+                {user?.isPremium ? 'Premium Plan' : user?.status === 'pending_approval' ? 'Verification Pending' : 'Free Plan'}
+              </span>
+              <span className="font-medium text-foreground">{invoiceCount} / {user?.isPremium ? '∞' : '5'} Invoices</span>
             </div>
             <button
               onClick={handleGlobalVoiceInput}
@@ -267,7 +431,6 @@ function App() {
             <Button
               variant="primary"
               size="sm"
-              disabled={invoiceCount >= 5}
               onClick={handleDownloadPDF}
               className="bg-blue-600 hover:bg-blue-700 px-2 md:px-4"
             >
@@ -294,13 +457,13 @@ function App() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
 
           {/* Editor Column */}
-          <div className={`lg:col-span-7 space-y-6 ${activeTab === 'edit' ? 'block' : 'hidden lg:block'} `}>
+          <div className={`lg:col-span-5 space-y-6 ${activeTab === 'edit' ? 'block' : 'hidden lg:block'} `}>
 
             {/* Business Info */}
-            <Card className="border-l-4 border-l-blue-500">
+            <Card className="border-l-4 border-l-blue-500 ">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
                   <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">1</div>
@@ -466,10 +629,25 @@ function App() {
               </div>
 
               <div className="space-y-4">
+                {/* Table Header (Desktop) - 2 Row Style */}
+                <div className="hidden md:block px-4 py-2 bg-muted/20 rounded-t-lg border-b text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  {/* Top Row Header */}
+                  <div className="mb-2 pb-2 border-b border-muted-foreground/10">Description</div>
+                  {/* Bottom Row Header */}
+                  <div className="grid grid-cols-12 gap-3">
+                    <div className="col-span-2 text-center">HSN</div>
+                    <div className="col-span-2 text-center">Qty</div>
+                    <div className="col-span-3 text-center">Price</div>
+                    <div className="col-span-3 text-center">Tax</div>
+                    <div className="col-span-2 text-right">Total</div>
+                  </div>
+                </div>
+
                 {invoice.items.map((item) => (
-                  <div key={item.id} className="group relative grid grid-cols-2 md:grid-cols-12 gap-3 items-start p-4 rounded-lg border bg-muted/10 hover:bg-muted/30 transition-colors">
-                    <div className="col-span-2 md:col-span-4">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Description</label>
+                  <div key={item.id} className="group relative p-4 rounded-lg border bg-muted/10 hover:bg-muted/30 transition-colors">
+                    {/* Row 1: Description */}
+                    <div className="mb-3">
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">Description</label>
                       <input
                         className="w-full bg-transparent border-0 border-b border-input focus:border-primary focus:ring-0 p-1 text-sm font-medium placeholder:text-muted/50"
                         placeholder="Item description"
@@ -477,110 +655,119 @@ function App() {
                         onChange={(e) => updateItem(item.id, 'description', e.target.value)}
                       />
                     </div>
-                    <div className="col-span-1 md:col-span-2">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">HSN/SAC</label>
-                      <input
-                        className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                        placeholder="HSN"
-                        value={item.hsn}
-                        onChange={(e) => updateItem(item.id, 'hsn', e.target.value)}
-                      />
-                    </div>
-                    <div className="col-span-1 md:col-span-1">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Qty</label>
-                      <input
-                        type="number"
-                        className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                        value={item.quantity}
-                        onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-                    <div className="col-span-2 md:col-span-2">
-                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Price</label>
-                      <div className="flex items-center gap-1">
+
+                    {/* Row 2: Metrics */}
+                    <div className="grid grid-cols-2 md:grid-cols-12 gap-3 items-center">
+                      <div className="col-span-1 md:col-span-2">
+                        <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">HSN/SAC</label>
+                        <input
+                          className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                          placeholder="HSN"
+                          value={item.hsn}
+                          onChange={(e) => updateItem(item.id, 'hsn', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="col-span-1 md:col-span-2">
+                        <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">Qty</label>
                         <input
                           type="number"
                           className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
-                          value={item.price}
-                          onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
+                          value={item.quantity}
+                          onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                         />
+                      </div>
+                      <div className="col-span-2 md:col-span-3">
+                        <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">Price</label>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center"
+                            value={item.price}
+                            onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
+                          />
+                          <button
+                            onClick={() => handleVoiceInput(item.id)}
+                            className={`p-1.5 rounded-md transition-all ${activeVoiceId === item.id && isListening
+                              ? 'bg-red-100 text-red-600 animate-pulse ring-1 ring-red-400'
+                              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                              }`}
+                            title="Voice Input"
+                            type="button"
+                          >
+                            <Mic className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      {
+                        invoice.global.taxType === 'IGST' && (
+                          <div className="col-span-1 md:col-span-3">
+                            <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">IGST %</label>
+                            <select
+                              className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
+                              value={item.igst || 0}
+                              onChange={(e) => updateItem(item.id, 'igst', parseFloat(e.target.value) || 0)}
+                            >
+                              <option value="0">0%</option>
+                              <option value="5">5%</option>
+                              <option value="18">18%</option>
+                              <option value="28">28%</option>
+                            </select>
+                          </div>
+                        )
+                      }
+                      {
+                        invoice.global.taxType === 'CGST_SGST' && (
+                          <>
+                            <div className="col-span-1 md:col-span-1">
+                              <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">CGST</label>
+                              <select
+                                className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
+                                value={item.cgst || 0}
+                                onChange={(e) => updateItem(item.id, 'cgst', parseFloat(e.target.value) || 0)}
+                              >
+                                <option value="0">0%</option>
+                                <option value="2.5">2.5%</option>
+                                <option value="9">9%</option>
+                                <option value="14">14%</option>
+                              </select>
+                            </div>
+                            <div className="col-span-1 md:col-span-1.5">
+                              <label className="text-xs font-semibold text-muted-foreground mb-1 block md:hidden">SGST</label>
+                              <select
+                                className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
+                                value={item.sgst || 0}
+                                onChange={(e) => updateItem(item.id, 'sgst', parseFloat(e.target.value) || 0)}
+                              >
+                                <option value="0">0%</option>
+                                <option value="2.5">2.5%</option>
+                                <option value="9">9%</option>
+                                <option value="14">14%</option>
+                              </select>
+                            </div>
+                          </>
+                        )
+                      }
+                      <div className="col-span-2 md:col-span-2 text-right md:text-right flex justify-between md:block items-center">
+                        <label className="text-xs font-semibold text-muted-foreground mb-0 md:mb-1 block md:hidden">Total</label>
+                        <div className="py-1 text-sm font-bold opacity-80">
+                          {(
+                            (item.quantity * item.price) * (1 + (
+                              invoice.global.taxType === 'IGST'
+                                ? (item.igst || 0) / 100
+                                : ((item.cgst || 0) + (item.sgst || 0)) / 100
+                            ))
+                          ).toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="col-span-2 md:col-span-12 flex justify-end pt-2">
                         <button
-                          onClick={() => handleVoiceInput(item.id)}
-                          className={`p-1.5 rounded-md transition-all ${activeVoiceId === item.id && isListening
-                            ? 'bg-red-100 text-red-600 animate-pulse ring-1 ring-red-400'
-                            : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-                            }`}
-                          title="Voice Input"
-                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
                         >
-                          <Mic className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" /> Remove Item
                         </button>
                       </div>
-                    </div>
-                    {invoice.global.taxType === 'IGST' && (
-                      <div className="col-span-1 md:col-span-1">
-                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">IGST %</label>
-                        <select
-                          className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
-                          value={item.igst || 0}
-                          onChange={(e) => updateItem(item.id, 'igst', parseFloat(e.target.value) || 0)}
-                        >
-                          <option value="0">0%</option>
-                          <option value="5">5%</option>
-                          <option value="18">18%</option>
-                          <option value="28">28%</option>
-                        </select>
-                      </div>
-                    )}
-                    {invoice.global.taxType === 'CGST_SGST' && (
-                      <>
-                        <div className="col-span-1 md:col-span-1">
-                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">CGST</label>
-                          <select
-                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
-                            value={item.cgst || 0}
-                            onChange={(e) => updateItem(item.id, 'cgst', parseFloat(e.target.value) || 0)}
-                          >
-                            <option value="0">0%</option>
-                            <option value="2.5">2.5%</option>
-                            <option value="9">9%</option>
-                            <option value="14">14%</option>
-                          </select>
-                        </div>
-                        <div className="col-span-1 md:col-span-1">
-                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">SGST</label>
-                          <select
-                            className="w-full bg-transparent border border-input rounded p-1 text-sm text-center h-[30px]"
-                            value={item.sgst || 0}
-                            onChange={(e) => updateItem(item.id, 'sgst', parseFloat(e.target.value) || 0)}
-                          >
-                            <option value="0">0%</option>
-                            <option value="2.5">2.5%</option>
-                            <option value="9">9%</option>
-                            <option value="14">14%</option>
-                          </select>
-                        </div>
-                      </>
-                    )}
-                    <div className="col-span-2 md:col-span-2 text-right md:text-right flex justify-between md:block items-center">
-                      <label className="text-xs font-semibold text-muted-foreground mb-0 md:mb-1 block">Total</label>
-                      <div className="py-1 text-sm font-bold opacity-80">
-                        {(
-                          (item.quantity * item.price) * (1 + (
-                            invoice.global.taxType === 'IGST'
-                              ? (item.igst || 0) / 100
-                              : ((item.cgst || 0) + (item.sgst || 0)) / 100
-                          ))
-                        ).toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="col-span-2 md:col-span-12 flex justify-end pt-2">
-                      <button
-                        onClick={() => removeItem(item.id)}
-                        className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
-                      >
-                        <Trash2 className="w-3 h-3" /> Remove Item
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -592,118 +779,15 @@ function App() {
             </Card>
 
             {/* Totals & Notes */}
-            <Card>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex flex-col gap-1 w-1/2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">Tax Type</label>
-                      <select
-                        className="w-full p-2 border rounded text-sm"
-                        value={invoice.global.taxType}
-                        onChange={(e) => updateSection('global', 'taxType', e.target.value)}
-                      >
-                        <option value="IGST">IGST (Inter-state)</option>
-                        <option value="CGST_SGST">CGST + SGST (Intra-state)</option>
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1 w-1/2">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">Round Off</label>
-                      <div className="flex items-center h-[38px]">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4"
-                          checked={invoice.global.roundOff}
-                          onChange={(e) => updateSection('global', 'roundOff', e.target.checked)}
-                        />
-                        <span className="ml-2 text-sm">Enable</span>
-                      </div>
-                    </div>
-                  </div>
+            {/* Totals & Notes */}
 
-                  <div className="flex flex-col gap-2">
-                    <label className="text-sm font-semibold text-muted-foreground">Payment Details / Notes</label>
-                    <textarea
-                      className="w-full min-h-[100px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      placeholder="Bank: HDFC&#10;Account: 123456789&#10;Ifsc: HDFC000123"
-                      value={invoice.payment.details}
-                      onChange={(e) => updateSection('payment', 'details', e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-3 bg-muted/20 p-6 rounded-lg">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span>{invoice.meta.currency} {totals.subtotal.toFixed(2)}</span>
-                  </div>
 
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Discount</span>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="h-8 rounded border border-input bg-transparent text-xs px-1"
-                        value={invoice.global.discountType}
-                        onChange={(e) => updateSection('global', 'discountType', e.target.value)}
-                      >
-                        <option value="flat">Flat</option>
-                        <option value="percent">%</option>
-                      </select>
-                      <input
-                        type="number"
-                        className="h-8 w-16 rounded border border-input bg-transparent text-xs text-right px-2"
-                        value={invoice.global.discount}
-                        onChange={(e) => updateSection('global', 'discount', parseFloat(e.target.value) || 0)}
-                      />
-                    </div>
-                  </div>
-                  {totals.discountAmount > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Discount Apply</span>
-                      <span>- {invoice.meta.currency} {totals.discountAmount.toFixed(2)}</span>
-                    </div>
-                  )}
-
-                  {totals.igst > 0 && (
-                    <div className="flex justify-between text-sm text-slate-600">
-                      <span>IGST</span>
-                      <span>{invoice.meta.currency} {totals.igst.toFixed(2)}</span>
-                    </div>
-                  )}
-                  {totals.cgst > 0 && (
-                    <div className="flex justify-between text-sm text-slate-600">
-                      <span>CGST</span>
-                      <span>{invoice.meta.currency} {totals.cgst.toFixed(2)}</span>
-                    </div>
-                  )}
-                  {totals.sgst > 0 && (
-                    <div className="flex justify-between text-sm text-slate-600">
-                      <span>SGST</span>
-                      <span>{invoice.meta.currency} {totals.sgst.toFixed(2)}</span>
-                    </div>
-                  )}
-
-                  {invoice.global.roundOff && totals.roundOffAmount !== 0 && (
-                    <div className="flex justify-between text-sm text-muted-foreground">
-                      <span>Round Off</span>
-                      <span>{totals.roundOffAmount > 0 ? '+' : ''}{invoice.meta.currency} {totals.roundOffAmount.toFixed(2)}</span>
-                    </div>
-                  )}
-
-                  <div className="border-t border-dashed my-2"></div>
-
-                  <div className="flex justify-between items-center text-lg font-bold">
-                    <span>Total</span>
-                    <span className="text-primary">{invoice.meta.currency} {totals.total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            </Card>
           </div>
 
           {/* Preview Column */}
-          <div className={`lg:col-span-5 ${activeTab === 'preview' ? 'block' : 'hidden lg:block'}`}>
+          <div className={`lg:col-span-7 ${activeTab === 'preview' ? 'block' : 'hidden lg:block'}`}>
             <div className="sticky top-24">
-              <div className="relative group overflow-x-auto pb-4 w-full max-w-[90vw] mx-auto md:max-w-full">
+              <div className="relative group overflow-x-auto pb-4 w-full max-w-[100vw] mx-auto md:max-w-full">
                 <div id="invoice-preview" className="bg-white text-black shadow-2xl rounded-none md:rounded-lg overflow-hidden min-h-[800px] min-w-[700px] print:shadow-none print:rounded-none">
 
                   {/* Modern Template */}
@@ -1064,9 +1148,172 @@ function App() {
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+
+
+        </div >
+        <Card className='  w-[100%] mt-10'>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-0">
+
+            {/* LEFT SIDE */}
+            <div className="space-y-6 p-0 ">
+
+              {/* Tax Type & Discount */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                {/* Tax Type */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-muted-foreground uppercase">
+                    Tax Type
+                  </label>
+                  <select
+                    className="w-full h-[42px] rounded border border-input bg-transparent px-3 text-sm"
+                    value={invoice.global.taxType}
+                    onChange={(e) =>
+                      updateSection('global', 'taxType', e.target.value)
+                    }
+                  >
+                    <option value="IGST">IGST (Inter-state)</option>
+                    <option value="CGST_SGST">CGST + SGST (Intra-state)</option>
+                  </select>
+                </div>
+
+                {/* Discount */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-muted-foreground uppercase">
+                    Discount
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <select
+                      className="h-[42px] rounded border border-input bg-transparent px-2 text-sm"
+                      value={invoice.global.discountType}
+                      onChange={(e) =>
+                        updateSection('global', 'discountType', e.target.value)
+                      }
+                    >
+                      <option value="flat">Flat</option>
+                      <option value="percent">%</option>
+                    </select>
+
+                    <input
+                      type="number"
+                      className="col-span-2 h-[42px] rounded border border-input bg-transparent px-3 text-sm"
+                      value={invoice.global.discount}
+                      onChange={(e) =>
+                        updateSection(
+                          'global',
+                          'discount',
+                          parseFloat(e.target.value) || 0
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Round Off */}
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={invoice.global.roundOff}
+                  onChange={(e) =>
+                    updateSection('global', 'roundOff', e.target.checked)
+                  }
+                />
+                <label className="text-sm font-semibold text-muted-foreground">
+                  Enable Round Off
+                </label>
+              </div>
+
+              {/* Payment Details / Notes */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-semibold text-muted-foreground">
+                  Payment Details / Notes
+                </label>
+                <textarea
+                  className="w-full min-h-[120px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder={`Bank: HDFC
+Account: 123456789
+IFSC: HDFC000123`}
+                  value={invoice.payment.details}
+                  onChange={(e) =>
+                    updateSection('payment', 'details', e.target.value)
+                  }
+                />
+              </div>
+            </div>
+
+            {/* RIGHT SIDE - SUMMARY */}
+            <div className="space-y-3 bg-muted/20 p-6 rounded-lg">
+
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>
+                  {invoice.meta.currency} {totals.subtotal.toFixed(2)}
+                </span>
+              </div>
+
+              {totals.discountAmount > 0 && (
+                <div className="flex justify-between text-sm text-green-600">
+                  <span>Discount Applied</span>
+                  <span>
+                    - {invoice.meta.currency}{" "}
+                    {totals.discountAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              {totals.igst > 0 && (
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>IGST</span>
+                  <span>
+                    {invoice.meta.currency} {totals.igst.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              {totals.cgst > 0 && (
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>CGST</span>
+                  <span>
+                    {invoice.meta.currency} {totals.cgst.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              {totals.sgst > 0 && (
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>SGST</span>
+                  <span>
+                    {invoice.meta.currency} {totals.sgst.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              {invoice.global.roundOff && totals.roundOffAmount !== 0 && (
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Round Off</span>
+                  <span>
+                    {totals.roundOffAmount > 0 ? "+" : ""}
+                    {invoice.meta.currency}{" "}
+                    {totals.roundOffAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              <div className="border-t border-dashed my-2" />
+
+              <div className="flex justify-between items-center text-lg font-bold">
+                <span>Total</span>
+                <span className="text-primary">
+                  {invoice.meta.currency} {totals.total.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div >
+    </div >
   );
 }
 

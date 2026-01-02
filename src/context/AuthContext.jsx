@@ -4,7 +4,8 @@ import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signOut,
-    onAuthStateChanged
+    onAuthStateChanged,
+    sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
@@ -40,6 +41,10 @@ export function AuthProvider({ children }) {
 
     function logout() {
         return signOut(auth);
+    }
+
+    function resetPassword(email) {
+        return sendPasswordResetEmail(auth, email);
     }
 
     useEffect(() => {
@@ -78,6 +83,7 @@ export function AuthProvider({ children }) {
         signup,
         login,
         logout,
+        resetPassword,
         loading
     };
 

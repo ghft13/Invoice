@@ -32,7 +32,7 @@ const Navbar = () => {
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                         <FileText className="h-5 w-5" />
                     </div>
-                    <span>JAYRAJ.</span>
+                    <span>InvoiceHub</span>
                 </div>
 
                 <div className="flex items-center gap-4">

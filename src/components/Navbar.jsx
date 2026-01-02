@@ -1,9 +1,21 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, FileText, Settings, BarChart } from 'lucide-react'; // Added BarChart
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, PlusCircle, FileText, Settings, BarChart, LogOut } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
     const location = useLocation();
+    const navigate = useNavigate();
+    const { logout } = useAuth();
+
+    const handleLogout = async () => {
+        try {
+            await logout();
+            navigate('/login');
+        } catch (error) {
+            console.error("Failed to log out", error);
+        }
+    };
 
     const isActive = (path) => location.pathname === path;
 
@@ -44,6 +56,10 @@ const Navbar = () => {
                         <BarChart className="h-4 w-4" />
                         <span className="hidden sm:inline">Reports</span>
                     </Link>
+                    <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 rounded-md transition-colors text-red-500 hover:bg-red-50">
+                        <LogOut className="h-4 w-4" />
+                        <span className="hidden sm:inline">Logout</span>
+                    </button>
                 </div>
             </div>
         </nav>

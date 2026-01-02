@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Card } from '../components/ui/Components';
 import { db } from '../firebase';
-import { collection, query, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, getDocs, orderBy, where } from 'firebase/firestore';
 import { BarChart, FileText } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
@@ -27,11 +28,15 @@ const GstReports = () => {
         grandTotal: 0
     });
 
+    const { currentUser } = useAuth();
+
     // 1. Fetch All Invoices Once
     useEffect(() => {
+        if (!currentUser) return;
+
         const fetchInvoices = async () => {
             try {
-                const q = query(collection(db, "invoices"));
+                const q = query(collection(db, "invoices"), where("ownerId", "==", currentUser.uid));
                 const querySnapshot = await getDocs(q);
 
                 const fetched = [];
@@ -59,7 +64,7 @@ const GstReports = () => {
         };
 
         fetchInvoices();
-    }, []);
+    }, [currentUser]);
 
     // 2. Filter & Calculate Totals Effect
     useEffect(() => {

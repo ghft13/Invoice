@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from '../components/ui/Components';
 import { Plus, Trash2, Save, Download, Eye, EyeOff } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom'; // Added useParams
+import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore'; // Added doc, getDoc, updateDoc
 import InvoiceTemplateClassic from '../components/InvoiceTemplateClassic';
@@ -65,6 +66,7 @@ const INITIAL_STATE = {
 const CreateInvoice = () => {
     const navigate = useNavigate();
     const { id } = useParams(); // Get ID from URL
+    const { currentUser, userProfile } = useAuth(); // Get auth user
     const [loading, setLoading] = useState(false);
     const [invoice, setInvoice] = useState(INITIAL_STATE);
     const [showPreview, setShowPreview] = useState(true);
@@ -102,28 +104,28 @@ const CreateInvoice = () => {
 
     // Load User Profile (Sender Details) on Mount
     useEffect(() => {
-        if (!id) { // Only if not editing an existing invoice (or we could overwrite if user wants always latest setting)
-            const userProfile = JSON.parse(localStorage.getItem('user_profile'));
-            if (userProfile && userProfile.businessName) {
+        if (!id && userProfile) {
+            // Only if not editing an existing invoice
+            if (userProfile.businessName) {
                 setInvoice(prev => ({
                     ...prev,
                     sender: {
-                        name: userProfile.businessName,
-                        address: userProfile.address,
+                        name: userProfile.businessName || userProfile.displayName || '',
+                        address: userProfile.address || '',
                         state: userProfile.state || 'Maharashtra',
-                        email: userProfile.email,
-                        phone: userProfile.phone,
-                        taxId: userProfile.gstin,
-                        bankName: userProfile.bankName,
-                        bankAccount: userProfile.bankAccount,
-                        bankIfsc: userProfile.bankIfsc,
-                        bankBranch: userProfile.bankBranch
+                        email: userProfile.email || '',
+                        phone: userProfile.phone || '',
+                        taxId: userProfile.gstin || '',
+                        bankName: userProfile.bankName || '',
+                        bankAccount: userProfile.bankAccount || '',
+                        bankIfsc: userProfile.bankIfsc || '',
+                        bankBranch: userProfile.bankBranch || ''
                     },
-                    client: { ...prev.client, state: userProfile.state || 'Maharashtra' } // Default client to same state for convenience
+                    client: { ...prev.client, state: userProfile.state || 'Maharashtra' }
                 }));
             }
         }
-    }, [id]);
+    }, [id, userProfile]);
 
     // Auto-Calculate Taxes whenever key fields change
     useEffect(() => {
@@ -332,7 +334,8 @@ const CreateInvoice = () => {
 
                 // Keep original structure too for UI compatibility if needed, but summary is key
                 meta: invoice.meta,
-                global: invoice.global
+                global: invoice.global,
+                ownerId: currentUser.uid // Enforce Ownership
             };
 
             await addDoc(collection(db, "invoices"), invoiceData);

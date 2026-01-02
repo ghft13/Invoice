@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated and matches ownerId
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isResourceOwner() {
+      return request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Users collection: specific user doc can be read/written by that user
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Invoices collection: 
+    // - Create: Must include ownerId == auth.uid
+    // - Read/Update/Delete: Must be owner
+    match /invoices/{invoiceId} {
+        allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+        allow read, update, delete: if isResourceOwner();
+    }
+  }
+}

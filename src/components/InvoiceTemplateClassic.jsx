@@ -9,9 +9,9 @@ const InvoiceTemplateClassic = ({ invoice }) => {
     const BORDER_R_CLASS = "border-r border-black border-r-[1px]";
     const BORDER_B_CLASS = "border-b border-black border-b-[1px]";
     const PADDING_CLASS = "px-2 py-1";
-    const HEADER_CLASS = `font-bold text-[10px] ${BORDER_R_CLASS} ${PADDING_CLASS} text-center`;
-    const CELL_CLASS = `text-[10px] ${BORDER_R_CLASS} ${PADDING_CLASS}`;
-    const CELL_RIGHT_CLASS = `text-[10px] ${BORDER_R_CLASS} ${PADDING_CLASS} text-right`;
+    const HEADER_CLASS = `font-bold text-[9px] ${BORDER_R_CLASS} ${PADDING_CLASS} text-center`;
+    const CELL_CLASS = `text-[9px] ${BORDER_R_CLASS} ${PADDING_CLASS} break-words`;
+    const CELL_RIGHT_CLASS = `text-[9px] ${BORDER_R_CLASS} ${PADDING_CLASS} text-right break-words`;
 
     // Calculate Subtotals and Taxes
     const subtotal = items.reduce((acc, item) => acc + (item.quantity * item.price), 0);
@@ -134,18 +134,13 @@ const InvoiceTemplateClassic = ({ invoice }) => {
                 {/* Items Table Header */}
                 <div className={`grid grid-cols-12 ${BORDER_B_CLASS} bg-gray-50`}>
                     <div className={`col-span-1 ${HEADER_CLASS}`}>#</div>
-                    <div className={`col-span-4 ${HEADER_CLASS} text-left`}>Item name</div>
+                    <div className={`col-span-3 ${HEADER_CLASS} text-left`}>Item name</div>
                     <div className={`col-span-1 ${HEADER_CLASS}`}>HSN/ SAC</div>
                     <div className={`col-span-1 ${HEADER_CLASS}`}>Quantity</div>
                     <div className={`col-span-1 ${HEADER_CLASS}`}>Unit</div>
                     <div className={`col-span-2 ${HEADER_CLASS}`}>Price/ Unit</div>
-                    {/* GST Column - displaying single column for rate for simplicity as per common formats, or we can look closely at image 
-                    Image shows: "GST" and then Amount. Let's inspect image... it seems "GST" col might be rate?
-                    Actually image says "GST" and value is "₹ 720.00 (18%)".
-                    So let's try to match that.
-                */}
                     <div className={`col-span-1 ${HEADER_CLASS}`}>GST</div>
-                    <div className={`col-span-1 ${HEADER_CLASS} border-r-0 text-right`}>Amount</div>
+                    <div className={`col-span-2 ${HEADER_CLASS} border-r-0 text-right`}>Amount</div>
                 </div>
 
                 {/* Items Rows */}
@@ -157,7 +152,7 @@ const InvoiceTemplateClassic = ({ invoice }) => {
                         return (
                             <div key={item.id} className={`grid grid-cols-12 ${BORDER_B_CLASS} last:border-b-0`}>
                                 <div className={`col-span-1 ${CELL_CLASS} text-center`}>{index + 1}</div>
-                                <div className={`col-span-4 ${CELL_CLASS} uppercase`}>
+                                <div className={`col-span-3 ${CELL_CLASS} uppercase`}>
                                     <span className="font-bold block">{item.description}</span>
                                     {/* Optional additional info could go here */}
                                 </div>
@@ -173,7 +168,7 @@ const InvoiceTemplateClassic = ({ invoice }) => {
                                         </>
                                     ) : '-'}
                                 </div>
-                                <div className={`col-span-1 ${CELL_RIGHT_CLASS} border-r-0 font-bold`}>
+                                <div className={`col-span-2 ${CELL_RIGHT_CLASS} border-r-0 font-bold`}>
                                     {formatCurrency((item.quantity * item.price) + itemTaxAmt)}
                                 </div>
                             </div>
@@ -184,10 +179,10 @@ const InvoiceTemplateClassic = ({ invoice }) => {
 
                 {/* Total Row */}
                 <div className={`grid grid-cols-12 ${BORDER_B_CLASS} border-t-black`}>
-                    <div className={`col-span-7 ${CELL_CLASS} text-right font-bold`}>Total</div>
+                    <div className={`col-span-5 ${CELL_CLASS} text-right font-bold`}>Total</div>
                     <div className={`col-span-1 ${CELL_CLASS} text-center font-bold`}>{items.reduce((sum, i) => sum + i.quantity, 0)}</div>
-                    <div className={`col-span-3 ${CELL_CLASS}`}></div>
-                    <div className={`col-span-1 ${CELL_RIGHT_CLASS} border-r-0 font-bold`}>{formatCurrency(subtotal)}</div>
+                    <div className={`col-span-4 ${CELL_CLASS}`}></div>
+                    <div className={`col-span-2 ${CELL_RIGHT_CLASS} border-r-0 font-bold`}>{formatCurrency(subtotal)}</div>
                 </div>
 
                 {/* Amount In Words & Finals */}

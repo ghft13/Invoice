@@ -1,22 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Button } from '../components/ui/Components';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Eye } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const Invoices = () => {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
+    const { currentUser } = useAuth();
 
     useEffect(() => {
-        fetchInvoices();
-    }, []);
+        if (currentUser) {
+            fetchInvoices();
+        }
+    }, [currentUser]);
 
     const fetchInvoices = async () => {
         try {
-            const querySnapshot = await getDocs(collection(db, 'invoices'));
+            const q = query(collection(db, 'invoices'), where('ownerId', '==', currentUser.uid));
+            const querySnapshot = await getDocs(q);
             const fetchedInvoices = querySnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()

@@ -3,6 +3,7 @@ import { Card, Button, Input } from '../components/ui/Components';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { Save } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const INDIAN_STATES = [
     "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat",
@@ -30,17 +31,19 @@ const Settings = () => {
         bankBranch: ''
     });
 
-    const [userId, setUserId] = useState(null);
+    const { currentUser, userProfile: authProfile } = useAuth();
 
     useEffect(() => {
-        // In a real app, getting user ID from Auth context is better. 
-        // For MVP, we'll try to get it from localStorage or just use a fixed ID for the single user demo
-        const storedUser = JSON.parse(localStorage.getItem('user_profile'));
-        if (storedUser && storedUser.id) {
-            setUserId(storedUser.id);
-            fetchSettings(storedUser.id);
+        if (authProfile) {
+            setUserProfile(prev => ({ ...prev, ...authProfile }));
         }
-    }, []);
+    }, [authProfile]);
+
+    // fetchSettings is theoretically redundant if AuthContext loads it, 
+    // but AuthContext only loads once on auth state change. 
+    // If we want to ensure fresh data, we can keep it or rely on AuthContext.
+    // Given the previous code, AuthContext load is usually sufficient for "profile" data.
+    // However, let's keep it simple and just rely on the effect above updating local state from context.
 
     const fetchSettings = async (id) => {
         try {
@@ -55,13 +58,13 @@ const Settings = () => {
     };
 
     const handleSave = async () => {
-        if (!userId) {
+        if (!currentUser) {
             alert("No user logged in to save settings.");
             return;
         }
         setLoading(true);
         try {
-            await updateDoc(doc(db, "users", userId), userProfile);
+            await updateDoc(doc(db, "users", currentUser.uid), userProfile);
             // Also update local storage for quick access
             const currentLocal = JSON.parse(localStorage.getItem('user_profile') || '{}');
             localStorage.setItem('user_profile', JSON.stringify({ ...currentLocal, ...userProfile }));

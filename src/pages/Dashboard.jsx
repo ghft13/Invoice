@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Card } from '../components/ui/Components';
 import { FileText, IndianRupee, Clock } from 'lucide-react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../context/AuthContext';
 
 const Dashboard = () => {
     const [stats, setStats] = useState({
@@ -11,11 +12,15 @@ const Dashboard = () => {
         pendingInvoices: 0,
     });
     const [loading, setLoading] = useState(true);
+    const { currentUser } = useAuth();
 
     useEffect(() => {
+        if (!currentUser) return;
+
         const fetchStats = async () => {
             try {
-                const querySnapshot = await getDocs(collection(db, 'invoices'));
+                const q = query(collection(db, 'invoices'), where('ownerId', '==', currentUser.uid));
+                const querySnapshot = await getDocs(q);
                 let totalInv = 0;
                 let totalAmt = 0;
                 let pending = 0;

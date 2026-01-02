@@ -10,17 +10,60 @@ service cloud.firestore {
       return request.auth != null && resource.data.ownerId == request.auth.uid;
     }
 
-    // Users collection: specific user doc can be read/written by that user
+    // Validation Helpers
+    function isValidName(name) {
+      return name is string && name.size() >= 2 && name.size() <= 100;
+    }
+    
+    function isValidGstin(gstin) {
+      // Basic length check, regex is hard in rules, but we can do length
+      return gstin == null || gstin == "" || (gstin is string && gstin.size() == 15);
+    }
+
+    function isValidAmount(amount) {
+      return amount is number && amount >= 0;
+    }
+
+    // Users collection
     match /users/{userId} {
       allow read, write: if isOwner(userId);
     }
 
-    // Invoices collection: 
-    // - Create: Must include ownerId == auth.uid
-    // - Read/Update/Delete: Must be owner
+    // Invoices collection
     match /invoices/{invoiceId} {
-        allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-        allow read, update, delete: if isResourceOwner();
+        allow create: if request.auth != null 
+          && request.resource.data.ownerId == request.auth.uid;
+          // Can add more strict schema checks here if needed, but 'items' and 'summary' are complex objects
+        allow read, delete: if isResourceOwner();
+        allow update: if isResourceOwner();
+    }
+
+    // Clients collection
+    match /clients/{clientId} {
+      allow create: if request.auth != null 
+        && request.resource.data.ownerId == request.auth.uid
+        && isValidName(request.resource.data.name)
+        && isValidGstin(request.resource.data.gstin);
+        
+      allow update: if isResourceOwner()
+        && isValidName(request.resource.data.name)
+        && isValidGstin(request.resource.data.gstin);
+        
+      allow read, delete: if isResourceOwner();
+    }
+
+    // Items collection
+    match /items/{itemId} {
+      allow create: if request.auth != null 
+        && request.resource.data.ownerId == request.auth.uid
+        && isValidName(request.resource.data.name)
+        && isValidAmount(request.resource.data.price);
+        
+      allow update: if isResourceOwner()
+        && isValidName(request.resource.data.name)
+        && isValidAmount(request.resource.data.price);
+        
+      allow read, delete: if isResourceOwner();
     }
   }
 }

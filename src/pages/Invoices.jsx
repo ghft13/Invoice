@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
+import React, { useState, useEffect } from 'react';
+import { collection, onSnapshot, doc, updateDoc, query, where, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Button } from '../components/ui/Components';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Eye } from 'lucide-react';
+import { Plus, Eye, Lock, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Invoices = () => {
@@ -13,44 +13,66 @@ const Invoices = () => {
     const { currentUser } = useAuth();
 
     useEffect(() => {
-        if (currentUser) {
-            fetchInvoices();
-        }
-    }, [currentUser]);
+        if (!currentUser) return;
 
-    const fetchInvoices = async () => {
-        try {
-            const q = query(collection(db, 'invoices'), where('ownerId', '==', currentUser.uid));
-            const querySnapshot = await getDocs(q);
+        const q = query(collection(db, 'invoices'), where('ownerId', '==', currentUser.uid));
+
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const fetchedInvoices = querySnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
-            // Sort by date desc (naive sort)
+            // Sort by date desc
             fetchedInvoices.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
             setInvoices(fetchedInvoices);
-        } catch (error) {
-            console.error("Error fetching invoices:", error);
-        } finally {
             setLoading(false);
-        }
-    };
+        }, (error) => {
+            console.error("Error fetching invoices:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser]);
 
     const toggleStatus = async (invoice) => {
         const newStatus = invoice.status === 'Paid' ? 'Unpaid' : 'Paid';
+        const willLock = newStatus === 'Paid';
+
         try {
             const invoiceRef = doc(db, 'invoices', invoice.id);
-            await updateDoc(invoiceRef, { status: newStatus });
+            const updateData = { status: newStatus };
+            // If becoming paid, we lock it
+            if (willLock) updateData.locked = true;
+
+            await updateDoc(invoiceRef, updateData);
+
             setInvoices(prev => prev.map(inv =>
-                inv.id === invoice.id ? { ...inv, status: newStatus } : inv
+                inv.id === invoice.id ? { ...inv, status: newStatus, locked: inv.locked || willLock } : inv
             ));
         } catch (error) {
             console.error("Error updating status:", error);
+            alert("Failed to update status. Invoice might be locked.");
+        }
+    };
+
+    const deleteInvoice = async (invoice) => {
+        if (invoice.locked) {
+            alert("This invoice is LOCKED and cannot be deleted.");
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to delete Invoice ${invoice.invoiceNumber || invoice.number}?`)) return;
+
+        try {
+            await deleteDoc(doc(db, "invoices", invoice.id));
+            setInvoices(prev => prev.filter(i => i.id !== invoice.id));
+        } catch (error) {
+            console.error("Error deleting invoice:", error);
+            alert("Failed to delete invoice");
         }
     };
 
     if (loading) {
-        return <div className="container mx-auto py-8 text-center">Loading invoices...</div>;
+        return <div className="container mx-auto py-8 text-center text-muted-foreground animate-pulse">Loading invoices...</div>;
     }
 
     return (
@@ -85,7 +107,10 @@ const Invoices = () => {
                             ) : (
                                 invoices.map((inv) => (
                                     <tr key={inv.id} className="hover:bg-muted/10 transition-colors">
-                                        <td className="p-4 font-medium">{inv.invoiceNumber || inv.number}</td>
+                                        <td className="p-4 font-medium flex items-center gap-2">
+                                            {inv.invoiceNumber || inv.number}
+                                            {inv.locked && <Lock className="h-3 w-3 text-red-500" title="Locked" />}
+                                        </td>
                                         <td className="p-4">{inv.invoiceDate || inv.date}</td>
                                         <td className="p-4">{inv.buyer?.name || inv.clientName}</td>
                                         <td className="p-4 text-right font-medium">
@@ -98,15 +123,26 @@ const Invoices = () => {
                                                     : 'bg-yellow-100 text-yellow-800'
                                                     }`}
                                                 onClick={() => toggleStatus(inv)}
-                                                title="Click to toggle status"
+                                                title={inv.locked ? "Invoice is Locked (Paid)" : "Click to toggle status"}
                                             >
                                                 {inv.status}
                                             </span>
                                         </td>
-                                        <td className="p-4 text-center">
+                                        <td className="p-4 text-center flex items-center justify-center gap-2">
                                             <Button variant="ghost" size="sm" onClick={() => navigate(`/invoice/${inv.id}`)}>
                                                 <Eye className="h-4 w-4" />
                                             </Button>
+
+                                            {/* Show disabled trash icon if locked, or no icon? User asked to Disable */}
+                                            {inv.locked ? (
+                                                <Button variant="ghost" size="sm" disabled className="opacity-30 cursor-not-allowed">
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            ) : (
+                                                <Button variant="ghost" size="sm" onClick={() => deleteInvoice(inv)} className="text-red-500 hover:bg-red-50">
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))

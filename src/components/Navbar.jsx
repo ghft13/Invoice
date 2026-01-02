@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, FileText, Settings, BarChart, LogOut } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, FileText, Settings, BarChart, LogOut, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
@@ -55,6 +55,14 @@ const Navbar = () => {
                     <Link to="/gst-reports" className={linkClass('/gst-reports')}>
                         <BarChart className="h-4 w-4" />
                         <span className="hidden sm:inline">Reports</span>
+                    </Link>
+                    <Link to="/clients" className={linkClass('/clients')}>
+                        <FileText className="h-4 w-4" />
+                        <span className="hidden sm:inline">Clients</span>
+                    </Link>
+                    <Link to="/items" className={linkClass('/items')}>
+                        <Package className="h-4 w-4" />
+                        <span className="hidden sm:inline">Items</span>
                     </Link>
                     <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 rounded-md transition-colors text-red-500 hover:bg-red-50">
                         <LogOut className="h-4 w-4" />

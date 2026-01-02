@@ -5,6 +5,10 @@ import CreateInvoice from './pages/CreateInvoice';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
 import GstReports from './pages/GstReports';
+import Clients from './pages/Clients';
+import ClientForm from './components/ClientForm';
+import Items from './pages/Items';
+import ItemForm from './components/ItemForm';
 import Signup from './components/Signup';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -41,6 +45,12 @@ function AppRoutes() {
         <Route path="/invoices" element={<PrivateRoute><Invoices /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
         <Route path="/gst-reports" element={<PrivateRoute><GstReports /></PrivateRoute>} />
+        <Route path="/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
+        <Route path="/clients/add" element={<PrivateRoute><ClientForm /></PrivateRoute>} />
+        <Route path="/clients/edit/:id" element={<PrivateRoute><ClientForm /></PrivateRoute>} />
+        <Route path="/items" element={<PrivateRoute><Items /></PrivateRoute>} />
+        <Route path="/items/add" element={<PrivateRoute><ItemForm /></PrivateRoute>} />
+        <Route path="/items/edit/:id" element={<PrivateRoute><ItemForm /></PrivateRoute>} />
       </Routes>
     </div>
   );

@@ -32,7 +32,10 @@ const INITIAL_STATE = {
         bankName: '',
         bankAccount: '',
         bankIfsc: '',
-        bankBranch: ''
+        bankAccount: '',
+        bankIfsc: '',
+        bankBranch: '',
+        signature: ''
     },
     client: {
         name: '',
@@ -171,7 +174,9 @@ const CreateInvoice = () => {
                         bankName: userProfile.bankName || '',
                         bankAccount: userProfile.bankAccount || '',
                         bankIfsc: userProfile.bankIfsc || '',
-                        bankBranch: userProfile.bankBranch || ''
+                        bankIfsc: userProfile.bankIfsc || '',
+                        bankBranch: userProfile.bankBranch || '',
+                        signature: userProfile.signature || ''
                     },
                     client: { ...prev.client, state: userProfile.state || 'Maharashtra' }
                 }));
@@ -401,6 +406,21 @@ const CreateInvoice = () => {
         }));
     };
 
+    const handleSignatureUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 500000) { // 500KB limit
+                alert("File is too large. Please upload an image under 500KB.");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                updateSection('sender', 'signature', reader.result);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
 
 
     const updateItem = (id, field, value) => {
@@ -611,6 +631,33 @@ const CreateInvoice = () => {
                                 <Input label="Account No" value={invoice.sender.bankAccount} onChange={(e) => updateSection('sender', 'bankAccount', e.target.value)} disabled={invoice.locked} />
                                 <Input label="IFSC Code" value={invoice.sender.bankIfsc} onChange={(e) => updateSection('sender', 'bankIfsc', e.target.value)} disabled={invoice.locked} />
                                 <Input label="Branch" value={invoice.sender.bankBranch} onChange={(e) => updateSection('sender', 'bankBranch', e.target.value)} disabled={invoice.locked} />
+                            </div>
+                            <div>
+                                <label className="text-sm font-semibold text-muted-foreground block mb-1">Authorized Signature</label>
+                                <div className="flex items-center gap-4">
+                                    {!invoice.locked && (
+                                        <Input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleSignatureUpload}
+                                            className="cursor-pointer text-xs file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                                        />
+                                    )}
+                                    {invoice.sender.signature && (
+                                        <div className="relative border p-1 rounded bg-white">
+                                            <img src={invoice.sender.signature} alt="Signature Preview" className="h-10 object-contain" />
+                                            {!invoice.locked && (
+                                                <button
+                                                    onClick={() => updateSection('sender', 'signature', '')}
+                                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-4 h-4 flex items-center justify-center text-[10px]"
+                                                    title="Remove"
+                                                >
+                                                    ✕
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </Card >

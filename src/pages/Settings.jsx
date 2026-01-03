@@ -28,7 +28,9 @@ const Settings = () => {
         bankName: '',
         bankAccount: '',
         bankIfsc: '',
-        bankBranch: ''
+        bankIfsc: '',
+        bankBranch: '',
+        signature: ''
     });
 
     const { currentUser, userProfile: authProfile } = useAuth();
@@ -81,6 +83,21 @@ const Settings = () => {
         setUserProfile(prev => ({ ...prev, [field]: value }));
     };
 
+    const handleSignatureUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 500000) { // 500KB limit
+                alert("File is too large. Please upload an image under 500KB.");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setUserProfile(prev => ({ ...prev, signature: reader.result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     return (
         <div className="container mx-auto py-8 px-4 max-w-3xl">
             <h2 className="text-3xl font-bold tracking-tight mb-6">Business Settings</h2>
@@ -109,6 +126,31 @@ const Settings = () => {
 
                         <Input label="Address" value={userProfile.address} onChange={(e) => handleChange('address', e.target.value)} />
                         <Input label="Email" value={userProfile.email} onChange={(e) => handleChange('email', e.target.value)} />
+
+                        <div>
+                            <label className="text-sm font-semibold text-muted-foreground block mb-1">Authorized Signature</label>
+                            <div className="flex items-center gap-4">
+                                <Input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleSignatureUpload}
+                                    className="cursor-pointer text-xs file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                                />
+                                {userProfile.signature && (
+                                    <div className="relative border p-1 rounded bg-white">
+                                        <img src={userProfile.signature} alt="Signature Preview" className="h-10 object-contain" />
+                                        <button
+                                            onClick={() => handleChange('signature', '')}
+                                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-4 h-4 flex items-center justify-center text-[10px]"
+                                            title="Remove"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-[10px] text-gray-500 mt-1">Upload a clear image of your signature (Max 500KB).</p>
+                        </div>
                     </div>
                 </Card>
 

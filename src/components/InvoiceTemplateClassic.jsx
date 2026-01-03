@@ -144,13 +144,13 @@ const InvoiceTemplateClassic = ({ invoice }) => {
                 </div>
 
                 {/* Items Rows */}
-                <div className="flex-grow min-h-[200px]">
+                <div className="flex-grow min-h-[200px] flex flex-col">
                     {items.map((item, index) => {
                         const itemRate = global.taxType === 'IGST' ? (item.igst || 0) : ((item.cgst || 0) + (item.sgst || 0));
                         const itemTaxAmt = (item.quantity * item.price) * (itemRate / 100);
 
                         return (
-                            <div key={item.id} className={`grid grid-cols-12 ${BORDER_B_CLASS} last:border-b-0`}>
+                            <div key={item.id} className={`grid grid-cols-12 ${BORDER_B_CLASS}`}>
                                 <div className={`col-span-1 ${CELL_CLASS} text-center`}>{index + 1}</div>
                                 <div className={`col-span-3 ${CELL_CLASS} uppercase`}>
                                     <span className="font-bold block">{item.description}</span>
@@ -174,7 +174,18 @@ const InvoiceTemplateClassic = ({ invoice }) => {
                             </div>
                         );
                     })}
-                    {/* Empty rows filler if needed, but not strictly required by React */}
+
+                    {/* Spacer to fill remaining height with vertical borders */}
+                    <div className="flex-grow grid grid-cols-12 grid-rows-1">
+                        <div className={`col-span-1 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-3 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-1 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-1 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-1 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-2 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-1 ${BORDER_R_CLASS}`}></div>
+                        <div className={`col-span-2`}></div>
+                    </div>
                 </div>
 
                 {/* Total Row */}

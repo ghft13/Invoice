@@ -5,7 +5,8 @@ import {
     signInWithEmailAndPassword,
     signOut,
     onAuthStateChanged,
-    sendPasswordResetEmail
+    sendPasswordResetEmail,
+    sendEmailVerification
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
@@ -32,6 +33,7 @@ export function AuthProvider({ children }) {
             isPremium: false,
             businessName: '', // Can be filled later
         });
+        await sendEmailVerification(result.user);
         return result;
     }
 
@@ -45,6 +47,10 @@ export function AuthProvider({ children }) {
 
     function resetPassword(email) {
         return sendPasswordResetEmail(auth, email);
+    }
+
+    function verifyEmail(user) {
+        return sendEmailVerification(user);
     }
 
     useEffect(() => {
@@ -84,6 +90,7 @@ export function AuthProvider({ children }) {
         login,
         logout,
         resetPassword,
+        verifyEmail,
         loading
     };
 

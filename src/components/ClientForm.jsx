@@ -74,9 +74,7 @@ const ClientForm = () => {
 
     const [errors, setErrors] = useState({});
 
-    // ... (rest of imports)
 
-    // ... (inside component)
 
     const validateForm = () => {
         const newErrors = {};
@@ -112,6 +110,20 @@ const ClientForm = () => {
         }
     };
 
+    const handleBlur = (e) => {
+        const { name, value } = e.target;
+        let error = null;
+
+        if (name === 'name') error = validateName(value, "Client Name");
+        else if (name === 'gstin') error = validateGSTIN(value);
+        else if (name === 'email') error = validateEmail(value);
+        else if (name === 'phone') error = validatePhone(value);
+
+        if (error) {
+            setErrors(prev => ({ ...prev, [name]: error }));
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
 
@@ -120,7 +132,28 @@ const ClientForm = () => {
         }
 
         setLoading(true);
-        // ... (rest of submit logic)
+        try {
+            const clientData = {
+                ...formData,
+                updatedAt: serverTimestamp(),
+                ownerId: currentUser.uid
+            };
+
+            if (id) {
+                await updateDoc(doc(db, 'clients', id), clientData);
+                alert("Client updated successfully");
+            } else {
+                clientData.createdAt = serverTimestamp();
+                await addDoc(collection(db, 'clients'), clientData);
+                alert("Client added successfully");
+            }
+            navigate('/clients');
+        } catch (error) {
+            console.error("Error saving client:", error);
+            alert("Failed to save client: " + error.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (

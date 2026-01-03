@@ -4,6 +4,8 @@ import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { Save } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+// Import validation utilities
+import { validateName, validateGSTIN, validateEmail, validatePhone, validateAmount } from '../utils/validation';
 
 const INDIAN_STATES = [
     "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat",
@@ -17,6 +19,7 @@ const INDIAN_STATES = [
 
 const Settings = () => {
     const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState({});
     const [userProfile, setUserProfile] = useState({
         businessName: '',
         gstin: '',
@@ -27,7 +30,6 @@ const Settings = () => {
         isGstRegistered: true,
         bankName: '',
         bankAccount: '',
-        bankIfsc: '',
         bankIfsc: '',
         bankBranch: '',
         signature: ''
@@ -41,29 +43,42 @@ const Settings = () => {
         }
     }, [authProfile]);
 
-    // fetchSettings is theoretically redundant if AuthContext loads it, 
-    // but AuthContext only loads once on auth state change. 
-    // If we want to ensure fresh data, we can keep it or rely on AuthContext.
-    // Given the previous code, AuthContext load is usually sufficient for "profile" data.
-    // However, let's keep it simple and just rely on the effect above updating local state from context.
+    const validateForm = () => {
+        const newErrors = {};
 
-    const fetchSettings = async (id) => {
-        try {
-            const docRef = doc(db, "users", id);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                setUserProfile(prev => ({ ...prev, ...docSnap.data() }));
-            }
-        } catch (error) {
-            console.error("Error fetching settings:", error);
+        // Validate Business Name
+        const nameErr = validateName(userProfile.businessName, "Business Name");
+        if (nameErr) newErrors.businessName = nameErr;
+
+        // Validate GSTIN if registered
+        if (userProfile.isGstRegistered && userProfile.gstin) {
+            const gstinErr = validateGSTIN(userProfile.gstin);
+            if (gstinErr) newErrors.gstin = gstinErr;
         }
+
+        // Validate Email
+        const emailErr = validateEmail(userProfile.email);
+        if (emailErr) newErrors.email = emailErr;
+
+        // Validate Phone
+        const phoneErr = validatePhone(userProfile.phone);
+        if (phoneErr) newErrors.phone = phoneErr;
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
     };
+
 
     const handleSave = async () => {
         if (!currentUser) {
             alert("No user logged in to save settings.");
             return;
         }
+
+        if (!validateForm()) {
+            return;
+        }
+
         setLoading(true);
         try {
             await updateDoc(doc(db, "users", currentUser.uid), userProfile);
@@ -81,6 +96,22 @@ const Settings = () => {
 
     const handleChange = (field, value) => {
         setUserProfile(prev => ({ ...prev, [field]: value }));
+        // Clear error on type
+        if (errors[field]) {
+            setErrors(prev => ({ ...prev, [field]: null }));
+        }
+    };
+
+    const handleBlur = (field, value) => {
+        let error = null;
+        if (field === 'businessName') error = validateName(value, "Business Name");
+        else if (field === 'gstin' && userProfile.isGstRegistered) error = validateGSTIN(value);
+        else if (field === 'email') error = validateEmail(value);
+        else if (field === 'phone') error = validatePhone(value);
+
+        if (error) {
+            setErrors(prev => ({ ...prev, [field]: error }));
+        }
     };
 
     const handleSignatureUpload = (e) => {
@@ -106,7 +137,10 @@ const Settings = () => {
                 <Card className="p-6">
                     <h3 className="text-lg font-semibold mb-4 border-b pb-2">Business Details</h3>
                     <div className="grid gap-4">
-                        <Input label="Business Name" value={userProfile.businessName} onChange={(e) => handleChange('businessName', e.target.value)} />
+                        <div className="space-y-1">
+                            <Input label="Business Name" value={userProfile.businessName} onChange={(e) => handleChange('businessName', e.target.value)} onBlur={(e) => handleBlur('businessName', e.target.value)} className={errors.businessName ? "border-red-500" : ""} />
+                            {errors.businessName && <p className="text-xs text-red-500">{errors.businessName}</p>}
+                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -121,11 +155,18 @@ const Settings = () => {
                                     ))}
                                 </select>
                             </div>
-                            <Input label="Phone" value={userProfile.phone} onChange={(e) => handleChange('phone', e.target.value)} />
+                            <div className="space-y-1">
+                                <Input label="Phone" value={userProfile.phone} onChange={(e) => handleChange('phone', e.target.value)} onBlur={(e) => handleBlur('phone', e.target.value)} className={errors.phone ? "border-red-500" : ""} />
+                                {errors.phone && <p className="text-xs text-red-500">{errors.phone}</p>}
+                            </div>
                         </div>
 
                         <Input label="Address" value={userProfile.address} onChange={(e) => handleChange('address', e.target.value)} />
-                        <Input label="Email" value={userProfile.email} onChange={(e) => handleChange('email', e.target.value)} />
+
+                        <div className="space-y-1">
+                            <Input label="Email" value={userProfile.email} onChange={(e) => handleChange('email', e.target.value)} onBlur={(e) => handleBlur('email', e.target.value)} className={errors.email ? "border-red-500" : ""} />
+                            {errors.email && <p className="text-xs text-red-500">{errors.email}</p>}
+                        </div>
 
                         <div>
                             <label className="text-sm font-semibold text-muted-foreground block mb-1">Authorized Signature</label>
@@ -170,7 +211,10 @@ const Settings = () => {
 
                     {userProfile.isGstRegistered && (
                         <div className="grid gap-4">
-                            <Input label="GSTIN" value={userProfile.gstin} onChange={(e) => handleChange('gstin', e.target.value)} placeholder="27ABCDE1234F1Z5" />
+                            <div className="space-y-1">
+                                <Input label="GSTIN" value={userProfile.gstin} onChange={(e) => handleChange('gstin', e.target.value)} onBlur={(e) => handleBlur('gstin', e.target.value)} placeholder="27ABCDE1234F1Z5" className={errors.gstin ? "border-red-500" : ""} />
+                                {errors.gstin && <p className="text-xs text-red-500">{errors.gstin}</p>}
+                            </div>
                         </div>
                     )}
                 </Card>

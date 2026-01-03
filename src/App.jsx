@@ -11,9 +11,19 @@ import Items from './pages/Items';
 import ItemForm from './components/ItemForm';
 import Signup from './components/Signup';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import VerifyEmail from './pages/VerifyEmail';
+import Terms from './pages/Terms';
 
 // wrapper to protect routes
 const PrivateRoute = ({ children }) => {
+  const { currentUser } = useAuth();
+  if (!currentUser) return <Navigate to="/login" />;
+  if (!currentUser.emailVerified) return <Navigate to="/verify-email" />;
+  return children;
+};
+
+// Wrapper for routes that require login but NOT verification (like VerifyEmail page)
+const AuthRequired = ({ children }) => {
   const { currentUser } = useAuth();
   return currentUser ? children : <Navigate to="/login" />;
 };
@@ -22,7 +32,9 @@ const PrivateRoute = ({ children }) => {
 const Landing = () => {
   const { currentUser } = useAuth();
   if (currentUser) {
-    return <Navigate to="/dashboard" replace />;
+    return currentUser.emailVerified
+      ? <Navigate to="/dashboard" replace />
+      : <Navigate to="/verify-email" replace />;
   }
   return <Signup />;
 };
@@ -38,6 +50,8 @@ function AppRoutes() {
         <Route path="/login" element={<Landing />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
+        <Route path="/verify-email" element={<AuthRequired><VerifyEmail /></AuthRequired>} />
+
         {/* Protected Routes */}
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/create-invoice" element={<PrivateRoute><CreateInvoice /></PrivateRoute>} />
@@ -48,9 +62,11 @@ function AppRoutes() {
         <Route path="/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
         <Route path="/clients/add" element={<PrivateRoute><ClientForm /></PrivateRoute>} />
         <Route path="/clients/edit/:id" element={<PrivateRoute><ClientForm /></PrivateRoute>} />
+
         <Route path="/items" element={<PrivateRoute><Items /></PrivateRoute>} />
         <Route path="/items/add" element={<PrivateRoute><ItemForm /></PrivateRoute>} />
         <Route path="/items/edit/:id" element={<PrivateRoute><ItemForm /></PrivateRoute>} />
+        <Route path="/terms" element={<PrivateRoute><Terms /></PrivateRoute>} />
       </Routes>
     </div>
   );

@@ -7,7 +7,7 @@ import { db } from '../firebase';
 import { collection, addDoc, doc, getDoc, updateDoc, query, where, onSnapshot } from 'firebase/firestore';
 import InvoiceTemplateClassic from '../components/InvoiceTemplateClassic';
 import html2pdf from 'html2pdf.js';
-import { validateGSTIN, validateEmail, validatePhone, validateName, validateAmount, validateInvoiceNumber } from '../utils/validation';
+import { validateGSTIN, validateEmail, validatePhone, validateName, validateAmount, validateInvoiceNumber, validateGSTRate, validateDate, sanitizeText } from '../utils/validation';
 
 const INDIAN_STATES = [
     "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat",
@@ -365,7 +365,12 @@ const CreateInvoice = () => {
                 const priceErr = validateAmount(item.price, "Price");
                 if (priceErr) newErrors[`items.${index}.price`] = priceErr;
 
-                if (!item.description) newErrors[`items.${index}.description`] = "Required";
+                const nameErr = validateName(item.description, "Item Description");
+                if (nameErr) newErrors[`items.${index}.description`] = nameErr;
+
+                // Validate Rate
+                const rateErr = validateGSTRate(item.gstRate);
+                if (rateErr) newErrors[`items.${index}.gstRate`] = rateErr;
             });
         }
 
@@ -437,7 +442,7 @@ const CreateInvoice = () => {
             if (!value || Number(value) <= 0) error = "Qty > 0";
         }
         else if (field === 'description') {
-            if (!value) error = "Required";
+            error = validateName(value, "Item Description");
         }
 
         const errorKey = `items.${index}.${field}`;

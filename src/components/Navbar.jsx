@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, FileText, Settings, BarChart, LogOut, Package } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, FileText, Settings, BarChart, LogOut, Package, Shield, Menu, MoreVertical } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { logout } = useAuth();
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const menuRef = useRef(null);
 
     const handleLogout = async () => {
         try {
@@ -16,6 +18,19 @@ const Navbar = () => {
             console.error("Failed to log out", error);
         }
     };
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setIsMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
 
     const isActive = (path) => location.pathname === path;
 
@@ -64,10 +79,39 @@ const Navbar = () => {
                         <Package className="h-4 w-4" />
                         <span className="hidden sm:inline">Items</span>
                     </Link>
-                    <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 rounded-md transition-colors text-red-500 hover:bg-red-50">
-                        <LogOut className="h-4 w-4" />
-                        <span className="hidden sm:inline">Logout</span>
-                    </button>
+
+                    {/* Updated Menu Dropdown */}
+                    <div className="relative" ref={menuRef}>
+                        <button
+                            onClick={() => setIsMenuOpen(!isMenuOpen)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${isMenuOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                        >
+                            <Menu className="h-5 w-5" />
+                            <span className="hidden sm:inline">Menu</span>
+                        </button>
+
+                        {isMenuOpen && (
+                            <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-popover ring-1 ring-black ring-opacity-5 focus:outline-none z-50 border">
+                                <div className="py-1">
+                                    <Link
+                                        to="/terms"
+                                        className="flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground w-full text-left"
+                                        onClick={() => setIsMenuOpen(false)}
+                                    >
+                                        <Shield className="h-4 w-4" />
+                                        Terms & Privacy
+                                    </Link>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 hover:text-red-700 w-full text-left"
+                                    >
+                                        <LogOut className="h-4 w-4" />
+                                        Logout
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </nav>

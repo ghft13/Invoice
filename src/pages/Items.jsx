@@ -22,6 +22,7 @@ const Items = () => {
             where('ownerId', '==', currentUser.uid)
         );
 
+        console.log("Fetching items for user:", currentUser.uid);
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const itemsData = snapshot.docs.map(doc => ({
                 id: doc.id,
